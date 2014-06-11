@@ -91,7 +91,11 @@ static const char *g_ErrorMsgTable[] =
 	"Plugin format is too new",
     "Out of memory",
     "Integer overflow",
-    "Script execution timed out"
+    "Script execution timed out",
+	"Signature was not found",
+	"Signature verification failed",
+	"Signature corrupted or damaged",
+	"Public key was not found"
 };
 
 const char *SourcePawnEngine::GetErrorString(int error)

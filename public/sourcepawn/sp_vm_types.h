@@ -88,6 +88,12 @@ typedef uint32_t	funcid_t;			/**< Function index code */
 #define SP_ERROR_OUT_OF_MEMORY			28  /**< Out of memory */
 #define SP_ERROR_INTEGER_OVERFLOW		29	/**< Integer overflow (-INT_MIN / -1) */
 #define SP_ERROR_TIMEOUT				30  /**< Timeout */
+#define SP_ERROR_SIG_NOT_FOUND			31  /**< Signature not found */
+#define SP_ERROR_SIG_VERIFY_FAILED		32  /**< Signature verification failed */
+#define SP_ERROR_SIG_INVALID			33  /**< Signature is corrupted */
+#define SP_ERROR_PKEY_NOT_FOUND			34  /**< Public key not found */
+#define SP_ERROR_PKEY_INVALID			35  /**< Public key corrupted */
+#define SP_ERROR_PKEY_REVOKED			36  /**< Public key has been blacklisted */
 //Hey you! Update the string table if you add to the end of me! */
 
 /**********************************************
