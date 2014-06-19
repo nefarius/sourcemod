@@ -1,17 +1,25 @@
-/*****************************************************************************
+/***************************************************************************
  *                                  _   _ ____  _
  *  Project                     ___| | | |  _ \| |
  *                             / __| | | | |_) | |
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * $Id: lib506.c,v 1.22 2008-09-20 04:26:57 yangtse Exp $
- */
-
+ * Copyright (C) 1998 - 2011, Daniel Stenberg, <daniel@haxx.se>, et al.
+ *
+ * This software is licensed as described in the file COPYING, which
+ * you should have received as part of this distribution. The terms
+ * are also available at http://curl.haxx.se/docs/copyright.html.
+ *
+ * You may opt to use, copy, modify, merge, publish, distribute and/or sell
+ * copies of the Software, and permit persons to whom the Software is
+ * furnished to do so, under the terms of the COPYING file.
+ *
+ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+ * KIND, either express or implied.
+ *
+ ***************************************************************************/
 #include "test.h"
-#include <stdlib.h>
-#include <ctype.h>
-#include <errno.h>
 
 #include <curl/mprintf.h>
 
@@ -132,7 +140,7 @@ static void *fire(void *ptr)
 /* build request url */
 static char *suburl(const char *base, int i)
 {
-  return curl_maprintf("%s000%c", base, 48+i);
+  return curl_maprintf("%s%.4d", base, i);
 }
 
 
@@ -141,11 +149,11 @@ int test(char *URL)
 {
   int res;
   CURLSHcode scode = CURLSHE_OK;
-  char *url;
+  char *url = NULL;
   struct Tdata tdata;
   CURL *curl;
   CURLSH *share;
-  struct curl_slist *headers;
+  struct curl_slist *headers = NULL;
   int i;
   struct userdata user;
 
@@ -194,6 +202,32 @@ int test(char *URL)
     return TEST_ERR_MAJOR_BAD;
   }
 
+  /* initial cookie manipulation */
+  if ((curl = curl_easy_init()) == NULL) {
+    fprintf(stderr, "curl_easy_init() failed\n");
+    curl_share_cleanup(share);
+    curl_global_cleanup();
+    return TEST_ERR_MAJOR_BAD;
+  }
+  printf( "CURLOPT_SHARE\n" );
+  test_setopt( curl, CURLOPT_SHARE,      share );
+  printf( "CURLOPT_COOKIELIST injected_and_clobbered\n" );
+  test_setopt( curl, CURLOPT_COOKIELIST,
+               "Set-Cookie: injected_and_clobbered=yes; "
+               "domain=host.foo.com; expires=Sat Feb 2 11:56:27 GMT 2030" );
+  printf( "CURLOPT_COOKIELIST ALL\n" );
+  test_setopt( curl, CURLOPT_COOKIELIST, "ALL" );
+  printf( "CURLOPT_COOKIELIST session\n" );
+  test_setopt( curl, CURLOPT_COOKIELIST, "Set-Cookie: session=elephants" );
+  printf( "CURLOPT_COOKIELIST injected\n" );
+  test_setopt( curl, CURLOPT_COOKIELIST,
+               "Set-Cookie: injected=yes; domain=host.foo.com; "
+               "expires=Sat Feb 2 11:56:27 GMT 2030" );
+  printf( "CURLOPT_COOKIELIST SESS\n" );
+  test_setopt( curl, CURLOPT_COOKIELIST, "SESS" );
+  printf( "CLEANUP\n" );
+  curl_easy_cleanup( curl );
+
 
   res = 0;
 
@@ -224,12 +258,14 @@ int test(char *URL)
 
   url = suburl( URL, i );
   headers = sethost( NULL );
-  curl_easy_setopt( curl, CURLOPT_HTTPHEADER, headers );
-  curl_easy_setopt( curl, CURLOPT_URL,        url );
+  test_setopt( curl, CURLOPT_HTTPHEADER, headers );
+  test_setopt( curl, CURLOPT_URL,        url );
   printf( "CURLOPT_SHARE\n" );
-  curl_easy_setopt( curl, CURLOPT_SHARE,      share );
+  test_setopt( curl, CURLOPT_SHARE,      share );
   printf( "CURLOPT_COOKIEJAR\n" );
-  curl_easy_setopt( curl, CURLOPT_COOKIEJAR,  JAR );
+  test_setopt( curl, CURLOPT_COOKIEJAR,  JAR );
+  printf( "CURLOPT_COOKIELIST FLUSH\n" );
+  test_setopt( curl, CURLOPT_COOKIELIST, "FLUSH" );
 
   printf( "PERFORM\n" );
   curl_easy_perform( curl );
@@ -245,12 +281,17 @@ int test(char *URL)
     printf( "SHARE_CLEANUP failed, correct\n" );
   }
 
+test_cleanup:
+
   /* clean up last handle */
   printf( "CLEANUP\n" );
   curl_easy_cleanup( curl );
-  curl_slist_free_all( headers );
 
-  curl_free(url);
+  if ( headers )
+    curl_slist_free_all( headers );
+
+  if ( url )
+    curl_free(url);
 
   /* free share */
   printf( "SHARE_CLEANUP\n" );

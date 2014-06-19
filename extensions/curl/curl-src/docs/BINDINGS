@@ -6,14 +6,14 @@
 
                                libcurl bindings
 
-Creative people have written bindings or interfaces for various environments
-and programming languages. Using one of these allows you to take advantage of
-curl powers from within your favourite language or system.
+ Creative people have written bindings or interfaces for various environments
+ and programming languages. Using one of these allows you to take advantage of
+ curl powers from within your favourite language or system.
 
-This is a list of all known interfaces as of this writing.
+ This is a list of all known interfaces as of this writing.
 
-The bindings listed below are not part of the curl/libcurl distribution
-archives, but must be downloaded and installed separately.
+ The bindings listed below are not part of the curl/libcurl distribution
+ archives, but must be downloaded and installed separately.
 
 Ada95
 
@@ -32,7 +32,7 @@ C
 C++
 
   Written by Jean-Philippe Barrette-LaPierre
-  http://rrette.com/textpattern/index.php?s=cURLpp
+  http://curlpp.org/
 
 Ch
 
@@ -41,7 +41,10 @@ Ch
 
 Cocoa
 
-  Written by Dan Wood
+  BBHTTP: written by Bruno de Carvalho
+  https://github.com/brunodecarvalho/BBHTTP
+
+  curlhandle: Written by Dan Wood
   http://curlhandle.sourceforge.net/
 
 D
@@ -54,10 +57,19 @@ Dylan
   Written by Chris Double
   http://dylanlibs.sourceforge.net/
 
+Eiffel
+
+  Written by Eiffel Software
+  http://curl.haxx.se/libcurl/eiffel/
+
 Euphoria
 
   Written by Ray Smith
   http://rays-web.com/eulibcurl.htm
+
+Falcon
+
+  http://www.falconpl.org/index.ftd?page_id=prjs&prj_id=curl
 
 Ferite
 
@@ -73,6 +85,11 @@ glib/GTK+
   Written by Richard Atterer
   http://atterer.net/glibcurl/
 
+Guile:
+
+  Written by Michael L. Gran
+  http://www.lonelycactus.com/guile-curl.html
+
 Haskell
 
   Written by Galois, Inc
@@ -82,6 +99,11 @@ Java
 
   Maintained by [blank]
   http://curl.haxx.se/libcurl/java/
+
+Julia
+
+  Written by Paul Howe
+  https://github.com/forio/Curl.jl
 
 Lisp
 

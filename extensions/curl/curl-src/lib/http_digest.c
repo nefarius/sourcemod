@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2008, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -18,34 +18,101 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
- * $Id: http_digest.c,v 1.44 2008-10-23 11:49:19 bagder Exp $
  ***************************************************************************/
-#include "setup.h"
+
+#include "curl_setup.h"
 
 #if !defined(CURL_DISABLE_HTTP) && !defined(CURL_DISABLE_CRYPTO_AUTH)
-/* -- WIN32 approved -- */
-#include <stdio.h>
-#include <string.h>
-#include <stdarg.h>
-#include <stdlib.h>
-#include <ctype.h>
 
 #include "urldata.h"
-#include "sendf.h"
 #include "rawstr.h"
 #include "curl_base64.h"
 #include "curl_md5.h"
 #include "http_digest.h"
 #include "strtok.h"
-#include "url.h" /* for Curl_safefree() */
-#include "memory.h"
-#include "easyif.h" /* included for Curl_convert_... prototypes */
+#include "curl_memory.h"
+#include "vtls/vtls.h" /* for Curl_rand() */
+#include "non-ascii.h" /* included for Curl_convert_... prototypes */
+#include "warnless.h"
 
 #define _MPRINTF_REPLACE /* use our functions only */
 #include <curl/mprintf.h>
 
 /* The last #include file should be: */
 #include "memdebug.h"
+
+#define MAX_VALUE_LENGTH 256
+#define MAX_CONTENT_LENGTH 1024
+
+static void digest_cleanup_one(struct digestdata *dig);
+
+/*
+ * Return 0 on success and then the buffers are filled in fine.
+ *
+ * Non-zero means failure to parse.
+ */
+static int get_pair(const char *str, char *value, char *content,
+                    const char **endptr)
+{
+  int c;
+  bool starts_with_quote = FALSE;
+  bool escape = FALSE;
+
+  for(c=MAX_VALUE_LENGTH-1; (*str && (*str != '=') && c--); )
+    *value++ = *str++;
+  *value=0;
+
+  if('=' != *str++)
+    /* eek, no match */
+    return 1;
+
+  if('\"' == *str) {
+    /* this starts with a quote so it must end with one as well! */
+    str++;
+    starts_with_quote = TRUE;
+  }
+
+  for(c=MAX_CONTENT_LENGTH-1; *str && c--; str++) {
+    switch(*str) {
+    case '\\':
+      if(!escape) {
+        /* possibly the start of an escaped quote */
+        escape = TRUE;
+        *content++ = '\\'; /* even though this is an escape character, we still
+                              store it as-is in the target buffer */
+        continue;
+      }
+      break;
+    case ',':
+      if(!starts_with_quote) {
+        /* this signals the end of the content if we didn't get a starting
+           quote and then we do "sloppy" parsing */
+        c=0; /* the end */
+        continue;
+      }
+      break;
+    case '\r':
+    case '\n':
+      /* end of string */
+      c=0;
+      continue;
+    case '\"':
+      if(!escape && starts_with_quote) {
+        /* end of string */
+        c=0;
+        continue;
+      }
+      break;
+    }
+    escape = FALSE;
+    *content++ = *str;
+  }
+  *content=0;
+
+  *endptr = str;
+
+  return 0; /* all is fine! */
+}
 
 /* Test example headers:
 
@@ -59,7 +126,6 @@ CURLdigest Curl_input_digest(struct connectdata *conn,
                              const char *header) /* rest of the *-authenticate:
                                                     header */
 {
-  bool more = TRUE;
   char *token = NULL;
   char *tmp = NULL;
   bool foundAuth = FALSE;
@@ -75,10 +141,6 @@ CURLdigest Curl_input_digest(struct connectdata *conn,
     d = &data->state.digest;
   }
 
-  /* skip initial whitespaces */
-  while(*header && ISSPACE(*header))
-    header++;
-
   if(checkprefix("Digest", header)) {
     header += strlen("Digest");
 
@@ -87,29 +149,17 @@ CURLdigest Curl_input_digest(struct connectdata *conn,
       before = TRUE;
 
     /* clear off any former leftovers and init to defaults */
-    Curl_digest_cleanup_one(d);
+    digest_cleanup_one(d);
 
-    while(more) {
-      char value[256];
-      char content[1024];
-      size_t totlen=0;
+    for(;;) {
+      char value[MAX_VALUE_LENGTH];
+      char content[MAX_CONTENT_LENGTH];
 
       while(*header && ISSPACE(*header))
         header++;
 
-      /* how big can these strings be? */
-      if((2 == sscanf(header, "%255[^=]=\"%1023[^\"]\"",
-                      value, content)) ||
-         /* try the same scan but without quotes around the content but don't
-            include the possibly trailing comma, newline or carriage return */
-         (2 ==  sscanf(header, "%255[^=]=%1023[^\r\n,]",
-                       value, content)) ) {
-        if(!strcmp("\"\"", content)) {
-          /* for the name="" case where we get only the "" in the content variable,
-           * simply clear the content then
-           */
-          content[0]=0;
-        }
+      /* extract a value=content pair */
+      if(!get_pair(header, value, content, &header)) {
         if(Curl_raw_equal(value, "nonce")) {
           d->nonce = strdup(content);
           if(!d->nonce)
@@ -175,17 +225,10 @@ CURLdigest Curl_input_digest(struct connectdata *conn,
         else {
           /* unknown specifier, ignore it! */
         }
-        totlen = strlen(value)+strlen(content)+1;
-
-        if(header[strlen(value)+1] == '\"')
-          /* the contents were within quotes, then add 2 for them to the
-             length */
-          totlen += 2;
       }
       else
         break; /* we're done here */
 
-      header += totlen;
       /* pass all additional spaces here */
       while(*header && ISSPACE(*header))
         header++;
@@ -219,6 +262,38 @@ static void md5_to_ascii(unsigned char *source, /* 16 bytes */
     snprintf((char *)&dest[i*2], 3, "%02x", source[i]);
 }
 
+/* Perform quoted-string escaping as described in RFC2616 and its errata */
+static char *string_quoted(const char *source)
+{
+  char *dest, *d;
+  const char *s = source;
+  size_t n = 1; /* null terminator */
+
+  /* Calculate size needed */
+  while(*s) {
+    ++n;
+    if(*s == '"' || *s == '\\') {
+      ++n;
+    }
+    ++s;
+  }
+
+  dest = malloc(n);
+  if(dest) {
+    s = source;
+    d = dest;
+    while(*s) {
+      if(*s == '"' || *s == '\\') {
+        *d++ = '\\';
+      }
+      *d++ = *s++;
+    }
+    *d = 0;
+  }
+
+  return dest;
+}
+
 CURLcode Curl_output_digest(struct connectdata *conn,
                             bool proxy,
                             const unsigned char *request,
@@ -227,27 +302,28 @@ CURLcode Curl_output_digest(struct connectdata *conn,
   /* We have a Digest setup for this, use it!  Now, to get all the details for
      this sorted out, I must urge you dear friend to read up on the RFC2617
      section 3.2.2, */
+  size_t urilen;
   unsigned char md5buf[16]; /* 16 bytes/128 bits */
   unsigned char request_digest[33];
   unsigned char *md5this;
-  unsigned char *ha1;
+  unsigned char ha1[33];/* 32 digits and 1 zero byte */
   unsigned char ha2[33];/* 32 digits and 1 zero byte */
-  char cnoncebuf[7];
-  char *cnonce;
+  char cnoncebuf[33];
+  char *cnonce = NULL;
+  size_t cnonce_sz = 0;
   char *tmp = NULL;
-  struct timeval now;
-
   char **allocuserpwd;
+  size_t userlen;
   const char *userp;
+  char *userp_quoted;
   const char *passwdp;
   struct auth *authp;
 
   struct SessionHandle *data = conn->data;
   struct digestdata *d;
-#ifdef CURL_DOES_CONVERSIONS
   CURLcode rc;
 /* The CURL_OUTPUT_DIGEST_CONV macro below is for non-ASCII machines.
-   It converts digest text to ASCII so the MD5 will be correct for 
+   It converts digest text to ASCII so the MD5 will be correct for
    what ultimately goes over the network.
 */
 #define CURL_OUTPUT_DIGEST_CONV(a, b) \
@@ -256,9 +332,6 @@ CURLcode Curl_output_digest(struct connectdata *conn,
     free(b); \
     return rc; \
   }
-#else
-#define CURL_OUTPUT_DIGEST_CONV(a, b)
-#endif /* CURL_DOES_CONVERSIONS */
 
   if(proxy) {
     d = &data->state.proxydigest;
@@ -275,10 +348,7 @@ CURLcode Curl_output_digest(struct connectdata *conn,
     authp = &data->state.authhost;
   }
 
-  if(*allocuserpwd) {
-    Curl_safefree(*allocuserpwd);
-    *allocuserpwd = NULL;
-  }
+  Curl_safefree(*allocuserpwd);
 
   /* not set means empty */
   if(!userp)
@@ -297,13 +367,17 @@ CURLcode Curl_output_digest(struct connectdata *conn,
     d->nc = 1;
 
   if(!d->cnonce) {
-    /* Generate a cnonce */
-    now = Curl_tvnow();
-    snprintf(cnoncebuf, sizeof(cnoncebuf), "%06ld", (long)now.tv_sec);
-    if(Curl_base64_encode(data, cnoncebuf, strlen(cnoncebuf), &cnonce))
-      d->cnonce = cnonce;
-    else
-      return CURLE_OUT_OF_MEMORY;
+    struct timeval now = Curl_tvnow();
+    snprintf(cnoncebuf, sizeof(cnoncebuf), "%08x%08x%08x%08x",
+             Curl_rand(data), Curl_rand(data),
+             (unsigned int)now.tv_sec,
+             (unsigned int)now.tv_usec);
+
+    rc = Curl_base64_encode(data, cnoncebuf, strlen(cnoncebuf),
+                            &cnonce, &cnonce_sz);
+    if(rc)
+      return rc;
+    d->cnonce = cnonce;
   }
 
   /*
@@ -324,12 +398,7 @@ CURLcode Curl_output_digest(struct connectdata *conn,
 
   CURL_OUTPUT_DIGEST_CONV(data, md5this); /* convert on non-ASCII machines */
   Curl_md5it(md5buf, md5this);
-  free(md5this); /* free this again */
-
-  ha1 = malloc(33); /* 32 digits and 1 zero byte */
-  if(!ha1)
-    return CURLE_OUT_OF_MEMORY;
-
+  Curl_safefree(md5this);
   md5_to_ascii(md5buf, ha1);
 
   if(d->algo == CURLDIGESTALGO_MD5SESS) {
@@ -339,7 +408,7 @@ CURLcode Curl_output_digest(struct connectdata *conn,
       return CURLE_OUT_OF_MEMORY;
     CURL_OUTPUT_DIGEST_CONV(data, tmp); /* convert on non-ASCII machines */
     Curl_md5it(md5buf, (unsigned char *)tmp);
-    free(tmp); /* free this again */
+    Curl_safefree(tmp);
     md5_to_ascii(md5buf, ha1);
   }
 
@@ -356,20 +425,41 @@ CURLcode Curl_output_digest(struct connectdata *conn,
     5.1.1 of RFC 2616)
   */
 
-  md5this = (unsigned char *)aprintf("%s:%s", request, uripath);
-  if(!md5this) {
-    free(ha1);
-    return CURLE_OUT_OF_MEMORY;
-  }
+  /* So IE browsers < v7 cut off the URI part at the query part when they
+     evaluate the MD5 and some (IIS?) servers work with them so we may need to
+     do the Digest IE-style. Note that the different ways cause different MD5
+     sums to get sent.
+
+     Apache servers can be set to do the Digest IE-style automatically using
+     the BrowserMatch feature:
+     http://httpd.apache.org/docs/2.2/mod/mod_auth_digest.html#msie
+
+     Further details on Digest implementation differences:
+     http://www.fngtps.com/2006/09/http-authentication
+  */
+
+  if(authp->iestyle && ((tmp = strchr((char *)uripath, '?')) != NULL))
+    urilen = tmp - (char *)uripath;
+  else
+    urilen = strlen((char *)uripath);
+
+  md5this = (unsigned char *)aprintf("%s:%.*s", request, urilen, uripath);
 
   if(d->qop && Curl_raw_equal(d->qop, "auth-int")) {
-    /* We don't support auth-int at the moment. I can't see a easy way to get
-       entity-body here */
-    /* TODO: Append H(entity-body)*/
+    /* We don't support auth-int for PUT or POST at the moment.
+       TODO: replace md5 of empty string with entity-body for PUT/POST */
+    unsigned char *md5this2 = (unsigned char *)
+      aprintf("%s:%s", md5this, "d41d8cd98f00b204e9800998ecf8427e");
+    Curl_safefree(md5this);
+    md5this = md5this2;
   }
+
+  if(!md5this)
+    return CURLE_OUT_OF_MEMORY;
+
   CURL_OUTPUT_DIGEST_CONV(data, md5this); /* convert on non-ASCII machines */
   Curl_md5it(md5buf, md5this);
-  free(md5this); /* free this again */
+  Curl_safefree(md5this);
   md5_to_ascii(md5buf, ha2);
 
   if(d->qop) {
@@ -387,20 +477,30 @@ CURLcode Curl_output_digest(struct connectdata *conn,
                                        d->nonce,
                                        ha2);
   }
-  free(ha1);
   if(!md5this)
     return CURLE_OUT_OF_MEMORY;
 
   CURL_OUTPUT_DIGEST_CONV(data, md5this); /* convert on non-ASCII machines */
   Curl_md5it(md5buf, md5this);
-  free(md5this); /* free this again */
+  Curl_safefree(md5this);
   md5_to_ascii(md5buf, request_digest);
 
   /* for test case 64 (snooped from a Mozilla 1.3a request)
 
     Authorization: Digest username="testuser", realm="testrealm", \
     nonce="1053604145", uri="/64", response="c55f7f30d83d774a3d2dcacf725abaca"
+
+    Digest parameters are all quoted strings.  Username which is provided by
+    the user will need double quotes and backslashes within it escaped.  For
+    the other fields, this shouldn't be an issue.  realm, nonce, and opaque
+    are copied as is from the server, escapes and all.  cnonce is generated
+    with web-safe characters.  uri is already percent encoded.  nc is 8 hex
+    characters.  algorithm and qop with standard values only contain web-safe
+    chracters.
   */
+  userp_quoted = string_quoted(userp);
+  if(!userp_quoted)
+    return CURLE_OUT_OF_MEMORY;
 
   if(d->qop) {
     *allocuserpwd =
@@ -408,16 +508,16 @@ CURLcode Curl_output_digest(struct connectdata *conn,
                "username=\"%s\", "
                "realm=\"%s\", "
                "nonce=\"%s\", "
-               "uri=\"%s\", "
+               "uri=\"%.*s\", "
                "cnonce=\"%s\", "
                "nc=%08x, "
-               "qop=\"%s\", "
+               "qop=%s, "
                "response=\"%s\"",
                proxy?"Proxy-":"",
-               userp,
+               userp_quoted,
                d->realm,
                d->nonce,
-               uripath, /* this is the PATH part of the URL */
+               urilen, uripath, /* this is the PATH part of the URL */
                d->cnonce,
                d->nc,
                d->qop,
@@ -434,15 +534,16 @@ CURLcode Curl_output_digest(struct connectdata *conn,
                "username=\"%s\", "
                "realm=\"%s\", "
                "nonce=\"%s\", "
-               "uri=\"%s\", "
+               "uri=\"%.*s\", "
                "response=\"%s\"",
                proxy?"Proxy-":"",
-               userp,
+               userp_quoted,
                d->realm,
                d->nonce,
-               uripath, /* this is the PATH part of the URL */
+               urilen, uripath, /* this is the PATH part of the URL */
                request_digest);
   }
+  Curl_safefree(userp_quoted);
   if(!*allocuserpwd)
     return CURLE_OUT_OF_MEMORY;
 
@@ -465,41 +566,25 @@ CURLcode Curl_output_digest(struct connectdata *conn,
     *allocuserpwd = tmp;
   }
 
-  /* append CRLF to the userpwd header */
-  tmp = realloc(*allocuserpwd, strlen(*allocuserpwd) + 3 + 1);
+  /* append CRLF + zero (3 bytes) to the userpwd header */
+  userlen = strlen(*allocuserpwd);
+  tmp = realloc(*allocuserpwd, userlen + 3);
   if(!tmp)
     return CURLE_OUT_OF_MEMORY;
-  strcat(tmp, "\r\n");
+  strcpy(&tmp[userlen], "\r\n"); /* append the data */
   *allocuserpwd = tmp;
 
   return CURLE_OK;
 }
 
-void Curl_digest_cleanup_one(struct digestdata *d)
+static void digest_cleanup_one(struct digestdata *d)
 {
-  if(d->nonce)
-    free(d->nonce);
-  d->nonce = NULL;
-
-  if(d->cnonce)
-    free(d->cnonce);
-  d->cnonce = NULL;
-
-  if(d->realm)
-    free(d->realm);
-  d->realm = NULL;
-
-  if(d->opaque)
-    free(d->opaque);
-  d->opaque = NULL;
-
-  if(d->qop)
-    free(d->qop);
-  d->qop = NULL;
-
-  if(d->algorithm)
-    free(d->algorithm);
-  d->algorithm = NULL;
+  Curl_safefree(d->nonce);
+  Curl_safefree(d->cnonce);
+  Curl_safefree(d->realm);
+  Curl_safefree(d->opaque);
+  Curl_safefree(d->qop);
+  Curl_safefree(d->algorithm);
 
   d->nc = 0;
   d->algo = CURLDIGESTALGO_MD5; /* default algorithm */
@@ -509,8 +594,8 @@ void Curl_digest_cleanup_one(struct digestdata *d)
 
 void Curl_digest_cleanup(struct SessionHandle *data)
 {
-  Curl_digest_cleanup_one(&data->state.digest);
-  Curl_digest_cleanup_one(&data->state.proxydigest);
+  digest_cleanup_one(&data->state.digest);
+  digest_cleanup_one(&data->state.proxydigest);
 }
 
 #endif
