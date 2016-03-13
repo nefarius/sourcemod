@@ -452,7 +452,7 @@ static cell_t HTTP_SetFailOnHTTPError(IPluginContext *pCtx, const cell_t *params
   return xfer->SetFailOnHTTPError(static_cast<bool>(params[2]));
 }
 
-const sp_nativeinfo_t curlext_natives[] = 
+sp_nativeinfo_t curlext_natives[] = 
 {
   {"HTTP_CreateFileDownloader", HTTP_CreateFileDownloader},
   {"HTTP_CreateMemoryDownloader", HTTP_CreateMemoryDownloader},
