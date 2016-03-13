@@ -1,7 +1,7 @@
 /**
  * vim: set ts=4 :
  * =============================================================================
- * SourceMod Sample Extension
+ * SourceMod Webternet Extension
  * Copyright (C) 2004-2008 AlliedModders LLC.  All rights reserved.
  * =============================================================================
  *
@@ -242,7 +242,10 @@ private:
 void OnGameFrame(bool simulating);
 IPlugin *FindPluginByContext(IPluginContext *pContext);
 
-// Natives
-extern const sp_nativeinfo_t curlext_natives[];
+extern HandleType_t g_SessionHandle;
+extern HandleType_t g_FormHandle;
+extern HandleType_t g_DownloadHandle;
+extern HTTPHandleDispatcher g_HTTPHandler;
+extern HTTPSessionManager& g_SessionManager;
 
 #endif // _INCLUDE_SOURCEMOD_EXTENSION_PROPER_H_
