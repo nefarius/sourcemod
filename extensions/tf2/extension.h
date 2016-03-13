@@ -2,7 +2,7 @@
  * vim: set ts=4 :
  * =============================================================================
  * SourceMod Team Fortress 2 Extension
- * Copyright (C) 2004-2011 AlliedModders LLC.  All rights reserved.
+ * Copyright (C) 2004-2015 AlliedModders LLC.  All rights reserved.
  * =============================================================================
  *
  * This program is free software; you can redistribute it and/or modify it under
@@ -42,6 +42,10 @@
 #include <server_class.h>
 #include <igameevents.h>
 
+namespace SourceMod {
+	class ISDKTools;
+}
+
 /**
  * @brief Sample implementation of the SDK Extension.
  * Note: Uncomment one of the pre-defined virtual functions in order to use it.
@@ -51,8 +55,7 @@ class TF2Tools :
 	public ICommandTargetProcessor,
 	public IConCommandBaseAccessor,
 	public IGameEventListener2,
-	public IPluginsListener,
-	public IClientListener
+	public IPluginsListener
 {
 public: //SDKExtension
 	/**
@@ -100,8 +103,6 @@ public: //IGameEventManager
 public: //IPluginsListener
 	void OnPluginLoaded(IPlugin *plugin);
 	void OnPluginUnloaded(IPlugin *plugin);
-public: //IClientListener
-	void OnClientPutInServer(int client);
 public:
 #if defined SMEXT_CONF_METAMOD
 	/**
@@ -116,7 +117,6 @@ public:
 #endif
 private:
 	bool m_CritDetoursEnabled;
-	bool m_IsHolidayDetourEnabled;
 	bool m_CondChecksEnabled;
 	bool m_RulesDetoursEnabled;
 	bool m_TeleportDetourEnabled;
@@ -139,6 +139,7 @@ enum TFClassType
 TFClassType ClassnameToType(const char *classname);
 
 extern IBinTools *g_pBinTools;
+extern ISDKTools *g_pSDKTools;
 extern IGameConfig *g_pGameConf;
 extern sm_sendprop_info_t *playerSharedOffset;
 

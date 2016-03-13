@@ -140,11 +140,6 @@
 		"game"		"FortressForever"
 	}
 	
-	"game.garrysmod.txt"
-	{
-		"game"		"garrysmod"
-	}
-	
 	"game.empires.txt"
 	{
 		"game"		"empires"
@@ -247,5 +242,17 @@
 	"game.nmrih.txt"
 	{
 		"game"		"nmrih"
+	}
+	"game.bms.txt"
+	{
+		"game"		"bms"
+	}
+	"game.modularcombat.txt"
+	{
+		"game"		"modularcombat"
+	}
+	"game.kz.txt"
+	{
+		"game"		"KreedzClimbing"
 	}
 }

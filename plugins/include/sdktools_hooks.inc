@@ -53,7 +53,27 @@
  * @param mouse		Mouse direction (x, y).
  * @return 			Plugin_Handled to block the commands from being processed, Plugin_Continue otherwise.
  *
- * @note			To see if all 11 params are avaliable, use FeatureType_Capability and
+ * @note			To see if all 11 params are available, use FeatureType_Capability and
  *					FEATURECAP_PLAYERRUNCMD_11PARAMS.
  */
 forward Action:OnPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:angles[3], &weapon, &subtype, &cmdnum, &tickcount, &seed, mouse[2]);
+
+/**
+ * @brief Called when a client requests a file from the server.
+ *
+ * @param client	Client index.
+ * @param sFile	Requested file path.
+ *
+ * @return	Plugin_Handled to block the transfer, Plugin_Continue to let it proceed.
+ */
+forward Action:OnFileSend(client, const String:sFile[]);
+
+/**
+ * @brief Called when a client sends a file to the server.
+ *
+ * @param client	Client index.
+ * @param sFile	Requested file path.
+ *
+ * @return	Plugin_Handled to block the transfer, Plugin_Continue to let it proceed.
+ */
+forward Action:OnFileReceive(client, const String:sFile[]);

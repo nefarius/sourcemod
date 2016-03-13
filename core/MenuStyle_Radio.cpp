@@ -83,6 +83,10 @@ void CRadioStyle::OnSourceModLevelChange(const char *mapName)
 	}
 
 	g_bRadioInit = true;
+
+	// Always register the style. Use IsSupported() to check for validity before use.
+	g_Menus.AddStyle(this);
+
 	const char *msg = g_pGameConf->GetKeyValue("HudRadioMenuMsg");
 	if (!msg || msg[0] == '\0')
 	{
@@ -118,7 +122,6 @@ void CRadioStyle::OnSourceModLevelChange(const char *mapName)
 		}
 	}
 
-	g_Menus.AddStyle(this);
 	g_Menus.SetDefaultStyle(this);
 
 	g_UserMsgs.HookUserMessage(g_ShowMenuId, this, false);
@@ -261,15 +264,6 @@ CRadioDisplay *CRadioStyle::MakeRadioDisplay(CRadioMenu *menu)
 	return display;
 }
 
-IMenuPanel *CRadioStyle::MakeRadioDisplay(const char *str, int keys)
-{
-	CRadioDisplay *pPanel = MakeRadioDisplay(NULL);
-
-	pPanel->DirectSet(str, keys);
-
-	return pPanel;
-}
-
 void CRadioStyle::FreeRadioDisplay(CRadioDisplay *display)
 {
 	m_FreeDisplays.push(display);
@@ -336,11 +330,12 @@ void CRadioDisplay::Reset()
 	keys = 0;
 }
 
-void CRadioDisplay::DirectSet(const char *str, int keymap)
+bool CRadioDisplay::DirectSet(const char *str)
 {
 	m_Title.clear();
 	m_BufferText.assign(str);
-	keys = keymap;
+	
+	return true;
 }
 
 unsigned int CRadioDisplay::GetCurrentKey()
@@ -461,7 +456,7 @@ void CRadioMenuPlayer::Radio_Init(int keys, const char *title, const char *text)
 {
 	if (title[0] != '\0')
 	{
-		display_len = UTIL_Format(display_pkt, 
+		display_len = ke::SafeSprintf(display_pkt, 
 			sizeof(display_pkt), 
 			"%s\n%s", 
 			title,
@@ -469,7 +464,7 @@ void CRadioMenuPlayer::Radio_Init(int keys, const char *title, const char *text)
 	}
 	else
 	{
-		display_len = UTIL_Format(display_pkt, 
+		display_len = ke::SafeSprintf(display_pkt, 
 			sizeof(display_pkt), 
 			"%s", 
 			text);
@@ -601,6 +596,7 @@ bool CRadioMenu::DisplayAtItem(int client,
 		return false;
 	}
 
+	AutoHandleRooter ahr(this->GetHandle());
 	return g_RadioMenuStyle.DoClientMenu(client,
 		this,
 		start_item,

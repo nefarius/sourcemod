@@ -14,6 +14,13 @@
 	/* CGlobalEntityList */
 	"#default"
 	{
+		/* These games have symbols stripped from the linux binaries */
+		"#supported"
+		{
+			"game"		"synergy"
+			"game"		"empires"
+		}
+		
 		"Offsets"
 		{
 			/* Offset into LevelShutdown */
@@ -21,13 +28,6 @@
 			{
 				"windows"	"11"
 				"linux"		"13"
-			}
-
-			"EntInfo"
-			{
-				"windows"	"4"	
-				"linux"		"4"
-				"mac"		"4"
 			}
 		}
 		
@@ -43,6 +43,24 @@
 			{
 				"library"	"server"
 				"mac"		"@gEntList"
+			}
+		}
+	}
+	
+	"#default"
+	{
+		"Keys"
+		{
+			"UseInvalidUniverseInSteam2IDs"		"1"
+		}
+		
+		"Offsets"
+		{
+			"EntInfo"
+			{
+				"windows"	"4"	
+				"linux"		"4"
+				"mac"		"4"
 			}
 		}
 	}

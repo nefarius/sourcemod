@@ -32,6 +32,7 @@
 #include "EventManager.h"
 #include "sm_stringutil.h"
 #include "logic_bridge.h"
+#include <bridge/include/IScriptManager.h>
 
 EventManager g_EventManager;
 
@@ -155,7 +156,7 @@ void EventManager::FireGameEvent(IGameEvent *pEvent)
 	   Just need to add ourselves as a listener to make our hook on IGameEventManager2::FireEvent work */
 }
 
-#if SOURCE_ENGINE >= SE_LEFT4DEAD
+#if SOURCE_ENGINE >= SE_LEFT4DEAD && SOURCE_ENGINE != SE_DOTA
 int EventManager::GetEventDebugID()
 {
 	return EVENT_DEBUG_ID_INIT;

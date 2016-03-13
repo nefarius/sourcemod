@@ -2,7 +2,7 @@
  * vim: set ts=4 sw=4 tw=99 noet :
  * =============================================================================
  * SourceMod
- * Copyright (C) 2004-2009 AlliedModders LLC.  All rights reserved.
+ * Copyright (C) 2004-2015 AlliedModders LLC.  All rights reserved.
  * =============================================================================
  *
  * This program is free software; you can redistribute it and/or modify it under
@@ -46,6 +46,12 @@
 #include "ConsoleDetours.h"
 #include "logic_bridge.h"
 #include <sourcemod_version.h>
+#include "smn_keyvalues.h"
+#include "command_args.h"
+#include <ITranslator.h>
+#include <bridge/include/IExtensionBridge.h>
+#include <bridge/include/IScriptManager.h>
+#include <bridge/include/ILogger.h>
 
 PlayerManager g_Players;
 bool g_OnMapStarted = false;
@@ -56,6 +62,8 @@ IForward *PostAdminFilter = NULL;
 const unsigned int *g_NumPlayersToAuth = NULL;
 int lifestate_offset = -1;
 List<ICommandTargetProcessor *> target_processors;
+
+ConVar sm_debug_connect("sm_debug_connect", "0", 0, "Log Debug information about potential connection issues.");
 
 #if SOURCE_ENGINE == SE_DOTA
 SH_DECL_HOOK5(IServerGameClients, ClientConnect, SH_NOATTRIB, 0, bool, CEntityIndex, const char *, const char *, char *, int);
@@ -74,6 +82,9 @@ SH_DECL_HOOK1_void(IServerGameClients, ClientCommand, SH_NOATTRIB, 0, edict_t *)
 #endif
 SH_DECL_HOOK1_void(IServerGameClients, ClientSettingsChanged, SH_NOATTRIB, 0, edict_t *);
 #endif // SE_DOTA
+#if SOURCE_ENGINE >= SE_EYE && SOURCE_ENGINE != SE_DOTA
+SH_DECL_HOOK2_void(IServerGameClients, ClientCommandKeyValues, SH_NOATTRIB, 0, edict_t *, KeyValues *);
+#endif
 
 #if SOURCE_ENGINE == SE_DOTA
 SH_DECL_HOOK0_void(IServerGameDLL, ServerActivate, SH_NOATTRIB, 0);
@@ -94,11 +105,7 @@ SH_DECL_EXTERN1_void(ConCommand, Dispatch, SH_NOATTRIB, false, const CCommand &)
 #elif SOURCE_ENGINE == SE_DARKMESSIAH
 SH_DECL_EXTERN0_void(ConCommand, Dispatch, SH_NOATTRIB, false);
 #else
-# if SH_IMPL_VERSION >= 4
- extern int __SourceHook_FHAddConCommandDispatch(void *,bool,class fastdelegate::FastDelegate0<void>);
-# else
- extern bool __SourceHook_FHAddConCommandDispatch(void *,bool,class fastdelegate::FastDelegate0<void>);
-# endif
+extern int __SourceHook_FHAddConCommandDispatch(void *,bool,class fastdelegate::FastDelegate0<void>);
 extern bool __SourceHook_FHRemoveConCommandDispatch(void *,bool,class fastdelegate::FastDelegate0<void>);
 #endif
 
@@ -128,12 +135,13 @@ public:
 PlayerManager::PlayerManager()
 {
 	m_AuthQueue = NULL;
-	m_FirstPass = false;
+	m_bServerActivated = false;
 	m_maxClients = 0;
 
 	m_SourceTVUserId = -1;
 	m_ReplayUserId = -1;
 
+	m_bInCCKVHook = false;
 	m_bAuthstringValidation = true; // use steam auth by default
 
 	m_UserIdLookUp = new int[USHRT_MAX+1];
@@ -148,6 +156,19 @@ PlayerManager::~PlayerManager()
 	delete [] m_UserIdLookUp;
 }
 
+void PlayerManager::OnSourceModStartup(bool late)
+{
+	/* Initialize all players */
+
+	m_PlayerCount = 0;
+	m_Players = new CPlayer[SM_MAXPLAYERS + 1];
+	m_AuthQueue = new unsigned int[SM_MAXPLAYERS + 1];
+
+	memset(m_AuthQueue, 0, sizeof(unsigned int) * (SM_MAXPLAYERS + 1));
+
+	g_NumPlayersToAuth = &m_AuthQueue[0];
+}
+
 void PlayerManager::OnSourceModAllInitialized()
 {
 	SH_ADD_HOOK(IServerGameClients, ClientConnect, serverClients, SH_MEMBER(this, &PlayerManager::OnClientConnect), false);
@@ -156,6 +177,10 @@ void PlayerManager::OnSourceModAllInitialized()
 	SH_ADD_HOOK(IServerGameClients, ClientDisconnect, serverClients, SH_MEMBER(this, &PlayerManager::OnClientDisconnect), false);
 	SH_ADD_HOOK(IServerGameClients, ClientDisconnect, serverClients, SH_MEMBER(this, &PlayerManager::OnClientDisconnect_Post), true);
 	SH_ADD_HOOK(IServerGameClients, ClientCommand, serverClients, SH_MEMBER(this, &PlayerManager::OnClientCommand), false);
+#if SOURCE_ENGINE >= SE_EYE && SOURCE_ENGINE != SE_DOTA
+	SH_ADD_HOOK(IServerGameClients, ClientCommandKeyValues, serverClients, SH_MEMBER(this, &PlayerManager::OnClientCommandKeyValues), false);
+	SH_ADD_HOOK(IServerGameClients, ClientCommandKeyValues, serverClients, SH_MEMBER(this, &PlayerManager::OnClientCommandKeyValues_Post), true);
+#endif
 	SH_ADD_HOOK(IServerGameClients, ClientSettingsChanged, serverClients, SH_MEMBER(this, &PlayerManager::OnClientSettingsChanged), true);
 	SH_ADD_HOOK(IServerGameDLL, ServerActivate, gamedll, SH_MEMBER(this, &PlayerManager::OnServerActivate), true);
 #if SOURCE_ENGINE >= SE_LEFT4DEAD && SOURCE_ENGINE != SE_DOTA
@@ -175,6 +200,8 @@ void PlayerManager::OnSourceModAllInitialized()
 	m_cldisconnect = forwardsys->CreateForward("OnClientDisconnect", ET_Ignore, 1, p2);
 	m_cldisconnect_post = forwardsys->CreateForward("OnClientDisconnect_Post", ET_Ignore, 1, p2);
 	m_clcommand = forwardsys->CreateForward("OnClientCommand", ET_Hook, 2, NULL, Param_Cell, Param_Cell);
+	m_clcommandkv = forwardsys->CreateForward("OnClientCommandKeyValues", ET_Hook, 2, NULL, Param_Cell, Param_Cell);
+	m_clcommandkv_post = forwardsys->CreateForward("OnClientCommandKeyValues_Post", ET_Ignore, 2, NULL, Param_Cell, Param_Cell);
 	m_clinfochanged = forwardsys->CreateForward("OnClientSettingsChanged", ET_Ignore, 1, p2);
 	m_clauth = forwardsys->CreateForward("OnClientAuthorized", ET_Ignore, 2, NULL, Param_Cell, Param_String);
 	m_onActivate = forwardsys->CreateForward("OnServerLoad", ET_Ignore, 0, NULL);
@@ -203,6 +230,10 @@ void PlayerManager::OnSourceModShutdown()
 	SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, serverClients, SH_MEMBER(this, &PlayerManager::OnClientDisconnect), false);
 	SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, serverClients, SH_MEMBER(this, &PlayerManager::OnClientDisconnect_Post), true);
 	SH_REMOVE_HOOK(IServerGameClients, ClientCommand, serverClients, SH_MEMBER(this, &PlayerManager::OnClientCommand), false);
+#if SOURCE_ENGINE >= SE_EYE && SOURCE_ENGINE != SE_DOTA
+	SH_REMOVE_HOOK(IServerGameClients, ClientCommandKeyValues, serverClients, SH_MEMBER(this, &PlayerManager::OnClientCommandKeyValues), false);
+	SH_REMOVE_HOOK(IServerGameClients, ClientCommandKeyValues, serverClients, SH_MEMBER(this, &PlayerManager::OnClientCommandKeyValues_Post), true);
+#endif
 	SH_REMOVE_HOOK(IServerGameClients, ClientSettingsChanged, serverClients, SH_MEMBER(this, &PlayerManager::OnClientSettingsChanged), true);
 	SH_REMOVE_HOOK(IServerGameDLL, ServerActivate, gamedll, SH_MEMBER(this, &PlayerManager::OnServerActivate), true);
 #if SOURCE_ENGINE >= SE_LEFT4DEAD && SOURCE_ENGINE != SE_DOTA
@@ -218,6 +249,8 @@ void PlayerManager::OnSourceModShutdown()
 	forwardsys->ReleaseForward(m_cldisconnect);
 	forwardsys->ReleaseForward(m_cldisconnect_post);
 	forwardsys->ReleaseForward(m_clcommand);
+	forwardsys->ReleaseForward(m_clcommandkv);
+	forwardsys->ReleaseForward(m_clcommandkv_post);
 	forwardsys->ReleaseForward(m_clinfochanged);
 	forwardsys->ReleaseForward(m_clauth);
 	forwardsys->ReleaseForward(m_onActivate);
@@ -255,7 +288,7 @@ ConfigResult PlayerManager::OnSourceModConfigChanged(const char *key,
 		} else if (strcasecmp(value, "off") == 0) {
 			m_QueryLang = false;
 		} else {
-			UTIL_Format(error, maxlength, "Invalid value: must be \"on\" or \"off\"");
+			ke::SafeSprintf(error, maxlength, "Invalid value: must be \"on\" or \"off\"");
 			return ConfigResult_Reject;
 		}
 		return ConfigResult_Accept;
@@ -266,7 +299,7 @@ ConfigResult PlayerManager::OnSourceModConfigChanged(const char *key,
 		} else if ( strcasecmp(value, "no") == 0) {
 			m_bAuthstringValidation = false;
 		} else {
-			UTIL_Format(error, maxlength, "Invalid value: must be \"yes\" or \"no\"");
+			ke::SafeSprintf(error, maxlength, "Invalid value: must be \"yes\" or \"no\"");
 			return ConfigResult_Reject;
 		}
 		return ConfigResult_Accept;
@@ -285,9 +318,6 @@ void PlayerManager::OnServerActivate(edict_t *pEdictList, int edictCount, int cl
 	static ConVar *replay_enable = icvar->FindVar("replay_enable");
 #endif
 
-	// clientMax will not necessarily be correct here (such as on late SourceTV enable)
-	m_maxClients = gpGlobals->maxClients;
-
 	ICommandLine *commandLine = g_HL2.GetValveCommandLine();
 	m_bIsSourceTVActive = (tv_enable && tv_enable->GetBool() && (!commandLine || commandLine->FindParm("-nohltv") == 0));
 	m_bIsReplayActive = false;
@@ -296,23 +326,8 @@ void PlayerManager::OnServerActivate(edict_t *pEdictList, int edictCount, int cl
 #endif
 	m_PlayersSinceActive = 0;
 	
-	if (!m_FirstPass)
-	{
-		/* Initialize all players */
-
-		m_PlayerCount = 0;
-		m_Players = new CPlayer[SM_MAXPLAYERS + 1];
-		m_AuthQueue = new unsigned int[SM_MAXPLAYERS + 1];
-		m_FirstPass = true;
-
-		memset(m_AuthQueue, 0, sizeof(unsigned int) * (SM_MAXPLAYERS + 1));
-
-		g_NumPlayersToAuth = &m_AuthQueue[0];
-	}
-
-	scripts->SyncMaxClients(m_maxClients);
-
 	g_OnMapStarted = true;
+	m_bServerActivated = true;
 
 #if SOURCE_ENGINE == SE_DOTA
 	extsys->CallOnCoreMapStart(gpGlobals->pEdicts, gpGlobals->maxEntities, gpGlobals->maxClients);
@@ -344,7 +359,7 @@ void PlayerManager::OnServerActivate(edict_t *pEdictList, int edictCount, int cl
 
 bool PlayerManager::IsServerActivated()
 {
-	return m_FirstPass;
+	return m_bServerActivated;
 }
 
 bool PlayerManager::CheckSetAdmin(int index, CPlayer *pPlayer, AdminId id)
@@ -403,12 +418,9 @@ void PlayerManager::RunAuthChecks()
 	for (unsigned int i=1; i<=m_AuthQueue[0]; i++)
 	{
 		pPlayer = &m_Players[m_AuthQueue[i]];
-#if SOURCE_ENGINE == SE_DOTA
-		authstr = engine->GetPlayerNetworkIDString(pPlayer->m_iIndex - 1);
-#else
-		authstr = engine->GetPlayerNetworkIDString(pPlayer->m_pEdict);
-#endif
-		pPlayer->SetAuthString(authstr);
+		pPlayer->UpdateAuthIds();
+		
+		authstr = pPlayer->m_AuthID.chars();
 
 		if (!pPlayer->IsAuthStringValidated())
 		{
@@ -425,6 +437,8 @@ void PlayerManager::RunAuthChecks()
 			unsigned int client = m_AuthQueue[i];
 			m_AuthQueue[i] = 0;
 			removed++;
+			
+			const char *steamId = pPlayer->GetSteam2Id();
 
 			/* Send to extensions */
 			List<IClientListener *>::iterator iter;
@@ -432,7 +446,7 @@ void PlayerManager::RunAuthChecks()
 			for (iter=m_hooks.begin(); iter!=m_hooks.end(); iter++)
 			{
 				pListener = (*iter);
-				pListener->OnClientAuthorized(client, authstr);
+				pListener->OnClientAuthorized(client, steamId ? steamId : authstr);
 				if (!pPlayer->IsConnected())
 				{
 					break;
@@ -444,7 +458,8 @@ void PlayerManager::RunAuthChecks()
 			{
 				/* :TODO: handle the case of a player disconnecting in the middle */
 				m_clauth->PushCell(client);
-				m_clauth->PushString(authstr);
+				/* For legacy reasons, people are expecting the Steam2 id here if using Steam auth */
+				m_clauth->PushString(steamId ? steamId : authstr);
 				m_clauth->Execute(NULL);
 			}
 
@@ -497,11 +512,36 @@ bool PlayerManager::OnClientConnect(edict_t *pEntity, const char *pszName, const
 	CPlayer *pPlayer = &m_Players[client];
 	++m_PlayersSinceActive;
 
+	if (pPlayer->IsConnected())
+	{
+		if (sm_debug_connect.GetBool())
+		{
+			const char *pAuth = pPlayer->GetAuthString(false);
+			if (pAuth == NULL)
+			{
+				pAuth = "";
+			}
+
+			logger->LogMessage("\"%s<%d><%s><>\" was already connected to the server.", pPlayer->GetName(), pPlayer->GetUserId(), pAuth);
+		}
+
+#if SOURCE_ENGINE == SE_DOTA
+		OnClientDisconnect(pPlayer->GetIndex(), 0);
+		OnClientDisconnect_Post(pPlayer->GetIndex(), 0);
+#else
+		OnClientDisconnect(pPlayer->GetEdict());
+		OnClientDisconnect_Post(pPlayer->GetEdict());
+#endif
+	}
+
 	pPlayer->Initialize(pszName, pszAddress, pEntity);
 	
 	/* Get the client's language */
 	if (m_QueryLang)
 	{
+#if SOURCE_ENGINE == SE_CSGO
+		pPlayer->m_LangId = translator->GetServerLanguage();
+#else
 		const char *name;
 		if (!pPlayer->IsFakeClient() && (name=engine->GetClientConVarValue(client, "cl_language")))
 		{
@@ -510,6 +550,7 @@ bool PlayerManager::OnClientConnect(edict_t *pEntity, const char *pszName, const
 		} else {
 			pPlayer->m_LangId = translator->GetServerLanguage();
 		}
+#endif
 	}
 	
 	List<IClientListener *>::iterator iter;
@@ -532,7 +573,7 @@ bool PlayerManager::OnClientConnect(edict_t *pEntity, const char *pszName, const
 
 	if (res)
 	{
-		if (!pPlayer->IsAuthorized())
+		if (!pPlayer->IsAuthorized() && !pPlayer->IsFakeClient())
 		{
 			m_AuthQueue[++m_AuthQueue[0]] = client;
 		}
@@ -616,14 +657,7 @@ void PlayerManager::OnClientPutInServer(edict_t *pEntity, const char *playername
 	{
 		/* Run manual connection routines */
 		char error[255];
-		const char *authid;
-#if SOURCE_ENGINE == SE_DOTA
-		authid = engine->GetPlayerNetworkIDString(client - 1);
-#else
-		authid = engine->GetPlayerNetworkIDString(pEntity);
-#endif
-		pPlayer->SetAuthString(authid);
-		pPlayer->Authorize();
+
 		pPlayer->m_bFakeClient = true;
 
 		/*
@@ -649,7 +683,8 @@ void PlayerManager::OnClientPutInServer(edict_t *pEntity, const char *playername
 		int newCount = m_PlayersSinceActive + 1;
 
 		int userId = GetPlayerUserId(pEntity);
-#if (SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_TF2 || SOURCE_ENGINE == SE_NUCLEARDAWN || SOURCE_ENGINE == SE_LEFT4DEAD2)
+#if (SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_TF2 || SOURCE_ENGINE == SE_SDK2013 \
+	|| SOURCE_ENGINE == SE_BMS || SOURCE_ENGINE == SE_NUCLEARDAWN  || SOURCE_ENGINE == SE_LEFT4DEAD2)
 		static ConVar *tv_name = icvar->FindVar("tv_name");
 #endif
 #if SOURCE_ENGINE == SE_TF2
@@ -674,7 +709,8 @@ void PlayerManager::OnClientPutInServer(edict_t *pEntity, const char *playername
 			&& (m_SourceTVUserId == userId
 #if SOURCE_ENGINE == SE_CSGO
 				|| strcmp(playername, "GOTV") == 0
-#elif (SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_TF2 || SOURCE_ENGINE == SE_NUCLEARDAWN)
+#elif (SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_TF2 || SOURCE_ENGINE == SE_SDK2013 \
+	|| SOURCE_ENGINE == SE_BMS || SOURCE_ENGINE == SE_NUCLEARDAWN  || SOURCE_ENGINE == SE_LEFT4DEAD2)
 				|| (tv_name && strcmp(playername, tv_name->GetString()) == 0) || (tv_name && tv_name->GetString()[0] == 0 && strcmp(playername, "unnamed") == 0)
 #else
 				|| strcmp(playername, "SourceTV") == 0
@@ -712,21 +748,33 @@ void PlayerManager::OnClientPutInServer(edict_t *pEntity, const char *playername
 		m_clconnect_post->PushCell(client);
 		m_clconnect_post->Execute(&res, NULL);
 
+		pPlayer->Authorize();
+		
+		const char *steamId = pPlayer->GetSteam2Id();
+
 		/* Now do authorization */
 		for (iter=m_hooks.begin(); iter!=m_hooks.end(); iter++)
 		{
 			pListener = (*iter);
-			pListener->OnClientAuthorized(client, authid);
+			pListener->OnClientAuthorized(client, steamId ? steamId : pPlayer->m_AuthID.chars());
 		}
 		/* Finally, tell plugins */
 		if (m_clauth->GetFunctionCount())
 		{
 			m_clauth->PushCell(client);
-			m_clauth->PushString(authid);
+			/* For legacy reasons, people are expecting the Steam2 id here if using Steam auth */
+			m_clauth->PushString(steamId ? steamId : pPlayer->m_AuthID.chars());
 			m_clauth->Execute(NULL);
 		}
 		pPlayer->Authorize_Post();
 	}
+#if SOURCE_ENGINE == SE_CSGO
+	else
+	{
+		// Not a bot
+		pPlayer->m_LanguageCookie = g_ConVarManager.QueryClientConVar(pEntity, "cl_language", NULL, 0);
+	}
+#endif
 
 	if (playerinfo)
 	{
@@ -953,21 +1001,21 @@ void ListExtensionsToClient(CPlayer *player, const CCommand &args)
 		const char *author = api->GetExtensionAuthor();
 		const char *description = api->GetExtensionDescription();
 
-		size_t len = UTIL_Format(buffer, sizeof(buffer), " \"%s\"", name);
+		size_t len = ke::SafeSprintf(buffer, sizeof(buffer), " \"%s\"", name);
 
 		if (version != NULL && version[0])
 		{
-			len += UTIL_Format(&buffer[len], sizeof(buffer)-len, " (%s)", version);
+			len += ke::SafeSprintf(&buffer[len], sizeof(buffer)-len, " (%s)", version);
 		}
 
 		if (author != NULL && author[0])
 		{
-			len += UTIL_Format(&buffer[len], sizeof(buffer)-len, " by %s", author);
+			len += ke::SafeSprintf(&buffer[len], sizeof(buffer)-len, " by %s", author);
 		}
 
 		if (description != NULL && description[0])
 		{
-			len += UTIL_Format(&buffer[len], sizeof(buffer)-len, ": %s", description);
+			len += ke::SafeSprintf(&buffer[len], sizeof(buffer)-len, ": %s", description);
 		}
 
 
@@ -1034,18 +1082,18 @@ void ListPluginsToClient(CPlayer *player, const CCommand &args)
 
 		size_t len;
 		const sm_plugininfo_t *info = pl->GetPublicInfo();
-		len = UTIL_Format(buffer, sizeof(buffer), " \"%s\"", (IS_STR_FILLED(info->name)) ? info->name : pl->GetFilename());
+		len = ke::SafeSprintf(buffer, sizeof(buffer), " \"%s\"", (IS_STR_FILLED(info->name)) ? info->name : pl->GetFilename());
 		if (IS_STR_FILLED(info->version))
 		{
-			len += UTIL_Format(&buffer[len], sizeof(buffer)-len, " (%s)", info->version);
+			len += ke::SafeSprintf(&buffer[len], sizeof(buffer)-len, " (%s)", info->version);
 		}
 		if (IS_STR_FILLED(info->author))
 		{
-			UTIL_Format(&buffer[len], sizeof(buffer)-len, " by %s", info->author);
+			ke::SafeSprintf(&buffer[len], sizeof(buffer)-len, " by %s", info->author);
 		}
 		else
 		{
-			UTIL_Format(&buffer[len], sizeof(buffer)-len, " %s", pl->GetFilename());
+			ke::SafeSprintf(&buffer[len], sizeof(buffer)-len, " %s", pl->GetFilename());
 		}
 		ClientConsolePrint(e, "%s", buffer);
 	}
@@ -1131,7 +1179,8 @@ void PlayerManager::OnClientCommand(edict_t *pEntity)
 		RETURN_META(MRES_SUPERCEDE);
 	}
 
-	g_HL2.PushCommandStack(&args);
+	EngineArgs cargs(args);
+	AutoEnterCommand autoEnterCommand(&cargs);
 
 	int argcount = args.ArgC() - 1;
 	const char *cmd = g_HL2.CurrentCommandName();
@@ -1150,10 +1199,9 @@ void PlayerManager::OnClientCommand(edict_t *pEntity)
 
 	if (g_ConsoleDetours.IsEnabled())
 	{
-		cell_t res2 = g_ConsoleDetours.InternalDispatch(client, args);
+		cell_t res2 = g_ConsoleDetours.InternalDispatch(client, &cargs);
 		if (res2 >= Pl_Stop)
 		{
-			g_HL2.PopCommandStack();
 			RETURN_META(MRES_SUPERCEDE);
 		}
 		else if (res2 > res)
@@ -1177,19 +1225,96 @@ void PlayerManager::OnClientCommand(edict_t *pEntity)
 
 	if (res >= Pl_Stop)
 	{
-		g_HL2.PopCommandStack();
 		RETURN_META(MRES_SUPERCEDE);
 	}
 
 	res = g_ConCmds.DispatchClientCommand(client, cmd, argcount, (ResultType)res);
-
-	g_HL2.PopCommandStack();
 
 	if (res >= Pl_Handled)
 	{
 		RETURN_META(MRES_SUPERCEDE);
 	}
 }
+
+#if SOURCE_ENGINE >= SE_EYE && SOURCE_ENGINE != SE_DOTA
+static bool s_LastCCKVAllowed = true;
+
+void PlayerManager::OnClientCommandKeyValues(edict_t *pEntity, KeyValues *pCommand)
+{
+	int client = IndexOfEdict(pEntity);
+
+	cell_t res = Pl_Continue;
+	CPlayer *pPlayer = &m_Players[client];
+
+	if (!pPlayer->IsInGame())
+	{
+		RETURN_META(MRES_IGNORED);
+	}
+
+	KeyValueStack *pStk = new KeyValueStack;
+	pStk->pBase = pCommand;
+	pStk->pCurRoot.push(pStk->pBase);
+	pStk->m_bDeleteOnDestroy = false;
+
+	Handle_t hndl = handlesys->CreateHandle(g_KeyValueType, pStk, g_pCoreIdent, g_pCoreIdent, NULL);
+
+	m_bInCCKVHook = true;
+	m_clcommandkv->PushCell(client);
+	m_clcommandkv->PushCell(hndl);
+	m_clcommandkv->Execute(&res);
+	m_bInCCKVHook = false;
+
+	HandleSecurity sec(g_pCoreIdent, g_pCoreIdent);
+
+	// Deletes pStk
+	handlesys->FreeHandle(hndl, &sec);
+
+	if (res >= Pl_Handled)
+	{
+		s_LastCCKVAllowed = false;
+		RETURN_META(MRES_SUPERCEDE);
+	}
+
+	s_LastCCKVAllowed = true;
+
+	RETURN_META(MRES_IGNORED);
+}
+
+void PlayerManager::OnClientCommandKeyValues_Post(edict_t *pEntity, KeyValues *pCommand)
+{
+	if (!s_LastCCKVAllowed)
+	{
+		return;
+	}
+
+	int client = IndexOfEdict(pEntity);
+
+	CPlayer *pPlayer = &m_Players[client];
+
+	if (!pPlayer->IsInGame())
+	{
+		return;
+	}
+
+	KeyValueStack *pStk = new KeyValueStack;
+	pStk->pBase = pCommand;
+	pStk->pCurRoot.push(pStk->pBase);
+	pStk->m_bDeleteOnDestroy = false;
+
+	Handle_t hndl = handlesys->CreateHandle(g_KeyValueType, pStk, g_pCoreIdent, g_pCoreIdent, NULL);
+
+	m_bInCCKVHook = true;
+	m_clcommandkv_post->PushCell(client);
+	m_clcommandkv_post->PushCell(hndl);
+	m_clcommandkv_post->Execute();
+	m_bInCCKVHook = false;
+
+	HandleSecurity sec(g_pCoreIdent, g_pCoreIdent);
+
+	// Deletes pStk
+	handlesys->FreeHandle(hndl, &sec);
+}
+#endif
 
 #if SOURCE_ENGINE == SE_DOTA
 void PlayerManager::OnClientSettingsChanged(CEntityIndex index)
@@ -1227,7 +1352,7 @@ void PlayerManager::OnClientSettingsChanged(edict_t *pEntity)
 	if ((networkid_force = engine->GetClientConVarValue(client, "networkid_force")) && networkid_force[0] != '\0')
 	{
 		unsigned int accountId = pPlayer->GetSteamAccountID();
-		g_Logger.LogMessage("\"%s<%d><STEAM_1:%d:%d><>\" has bad networkid (id \"%s\") (ip \"%s\")",
+		logger->LogMessage("\"%s<%d><STEAM_1:%d:%d><>\" has bad networkid (id \"%s\") (ip \"%s\")",
 			new_name, pPlayer->GetUserId(), accountId & 1, accountId >> 1, networkid_force, pPlayer->GetIPAddress());
 
 		pPlayer->Kick("NetworkID spoofing detected.");
@@ -1529,7 +1654,7 @@ void PlayerManager::ProcessCommandTarget(cmd_target_info_t *info)
 				{
 					info->targets[0] = client;
 					info->num_targets = 1;
-					strncopy(info->target_name, pTarget->GetName(), info->target_name_maxlength);
+					ke::SafeStrcpy(info->target_name, info->target_name_maxlength, pTarget->GetName());
 					info->target_name_style = COMMAND_TARGETNAME_RAW;
 				}
 				else
@@ -1541,22 +1666,47 @@ void PlayerManager::ProcessCommandTarget(cmd_target_info_t *info)
 		}
 
 		/* Do we need to look for a steam id? */
+		int steamIdType = 0;
 		if (strncmp(&info->pattern[1], "STEAM_", 6) == 0)
 		{
-			size_t p, len;
+			steamIdType = 2;
+		}
+		else if (strncmp(&info->pattern[1], "[U:", 3) == 0)
+		{
+			steamIdType = 3;
+		}
+		
+		if (steamIdType > 0)
+		{
 			char new_pattern[256];
-
-			strcpy(new_pattern, "STEAM_");
-			len = strlen(&info->pattern[7]);
-			for (p = 0; p < len; p++)
+			if (steamIdType == 2)
 			{
-				new_pattern[6 + p] = info->pattern[7 + p];
-				if (new_pattern[6 + p] == '_')
+				size_t p, len;
+
+				strcpy(new_pattern, "STEAM_");
+				len = strlen(&info->pattern[7]);
+				for (p = 0; p < len; p++)
 				{
-					new_pattern[6 + p] = ':';
+					new_pattern[6 + p] = info->pattern[7 + p];
+					if (new_pattern[6 + p] == '_')
+					{
+						new_pattern[6 + p] = ':';
+					}
 				}
+				new_pattern[6 + p] = '\0';
 			}
-			new_pattern[6 + p] = '\0';
+			else
+			{
+				size_t p = 0;
+				char c;
+				while ((c = info->pattern[p + 1]) != '\0')
+				{
+					new_pattern[p] = (c == '_') ? ':' : c;					
+					++p;
+				}
+				
+				new_pattern[p] = '\0';
+			}
 
 			for (int i = 1; i <= max_clients; i++)
 			{
@@ -1568,15 +1718,17 @@ void PlayerManager::ProcessCommandTarget(cmd_target_info_t *info)
 				{
 					continue;
 				}
-				const char *authstr = pTarget->GetAuthString(false); // We want to make it easy for people to be kicked/banned, so don't require validation for command targets.
-				if (authstr && strcmp(authstr, new_pattern) == 0)
+				
+				// We want to make it easy for people to be kicked/banned, so don't require validation for command targets.
+				const char *steamId = steamIdType == 2 ? pTarget->GetSteam2Id(false) : pTarget->GetSteam3Id(false);
+				if (steamId && strcmp(steamId, new_pattern) == 0)
 				{
 					if ((info->reason = FilterCommandTarget(pAdmin, pTarget, info->flags))
 						== COMMAND_TARGET_VALID)
 					{
 						info->targets[0] = i;
 						info->num_targets = 1;
-						strncopy(info->target_name, pTarget->GetName(), info->target_name_maxlength);
+						ke::SafeStrcpy(info->target_name, info->target_name_maxlength, pTarget->GetName());
 						info->target_name_style = COMMAND_TARGETNAME_RAW;
 					}
 					else
@@ -1606,7 +1758,7 @@ void PlayerManager::ProcessCommandTarget(cmd_target_info_t *info)
 				{
 					info->targets[0] = i;
 					info->num_targets = 1;
-					strncopy(info->target_name, pTarget->GetName(), info->target_name_maxlength);
+					ke::SafeStrcpy(info->target_name, info->target_name_maxlength, pTarget->GetName());
 					info->target_name_style = COMMAND_TARGETNAME_RAW;
 				}
 				else
@@ -1625,7 +1777,7 @@ void PlayerManager::ProcessCommandTarget(cmd_target_info_t *info)
 		{
 			info->targets[0] = info->admin;
 			info->num_targets = 1;
-			strncopy(info->target_name, pAdmin->GetName(), info->target_name_maxlength);
+			ke::SafeStrcpy(info->target_name, info->target_name_maxlength, pAdmin->GetName());
 			info->target_name_style = COMMAND_TARGETNAME_RAW;
 		}
 		else
@@ -1644,7 +1796,7 @@ void PlayerManager::ProcessCommandTarget(cmd_target_info_t *info)
 		if (strcmp(info->pattern, "@all") == 0)
 		{
 			is_multi = true;
-			strncopy(info->target_name, "all players", info->target_name_maxlength);
+			ke::SafeStrcpy(info->target_name, info->target_name_maxlength, "all players");
 			info->target_name_style = COMMAND_TARGETNAME_ML;
 		}
 		else if (strcmp(info->pattern, "@dead") == 0)
@@ -1657,7 +1809,7 @@ void PlayerManager::ProcessCommandTarget(cmd_target_info_t *info)
 				return;
 			}
 			info->flags |= COMMAND_FILTER_DEAD;
-			strncopy(info->target_name, "all dead players", info->target_name_maxlength);
+			ke::SafeStrcpy(info->target_name, info->target_name_maxlength, "all dead players");
 			info->target_name_style = COMMAND_TARGETNAME_ML;
 		}
 		else if (strcmp(info->pattern, "@alive") == 0)
@@ -1669,7 +1821,7 @@ void PlayerManager::ProcessCommandTarget(cmd_target_info_t *info)
 				info->reason = COMMAND_TARGET_NOT_DEAD;
 				return;
 			}
-			strncopy(info->target_name, "all alive players", info->target_name_maxlength);
+			ke::SafeStrcpy(info->target_name, info->target_name_maxlength, "all alive players");
 			info->target_name_style = COMMAND_TARGETNAME_ML;
 			info->flags |= COMMAND_FILTER_ALIVE;
 		}
@@ -1682,21 +1834,21 @@ void PlayerManager::ProcessCommandTarget(cmd_target_info_t *info)
 				info->reason = COMMAND_TARGET_NOT_HUMAN;
 				return;
 			}
-			strncopy(info->target_name, "all bots", info->target_name_maxlength);
+			ke::SafeStrcpy(info->target_name, info->target_name_maxlength, "all bots");
 			info->target_name_style = COMMAND_TARGETNAME_ML;
 			bots_only = true;
 		}
 		else if (strcmp(info->pattern, "@humans") == 0)
 		{
 			is_multi = true;
-			strncopy(info->target_name, "all humans", info->target_name_maxlength);
+			ke::SafeStrcpy(info->target_name, info->target_name_maxlength, "all humans");
 			info->target_name_style = COMMAND_TARGETNAME_ML;
 			info->flags |= COMMAND_FILTER_NO_BOTS;
 		}
 		else if (strcmp(info->pattern, "@!me") == 0)
 		{
 			is_multi = true;
-			strncopy(info->target_name, "all players", info->target_name_maxlength);
+			ke::SafeStrcpy(info->target_name, info->target_name_maxlength, "all players");
 			info->target_name_style = COMMAND_TARGETNAME_ML;
 			skip_client = info->admin;
 		}
@@ -1768,7 +1920,7 @@ void PlayerManager::ProcessCommandTarget(cmd_target_info_t *info)
 		{
 			info->targets[0] = found_client;
 			info->num_targets = 1;
-			strncopy(info->target_name, pFoundClient->GetName(), info->target_name_maxlength);
+			ke::SafeStrcpy(info->target_name, info->target_name_maxlength, pFoundClient->GetName());
 			info->target_name_style = COMMAND_TARGETNAME_RAW;
 		}
 		else
@@ -1790,11 +1942,6 @@ void PlayerManager::OnSourceModMaxPlayersChanged( int newvalue )
 
 void PlayerManager::MaxPlayersChanged( int newvalue /*= -1*/ )
 {
-	if (!m_FirstPass)
-	{
-		return;
-	}
-
 	if (newvalue == -1)
 	{
 		newvalue = gpGlobals->maxClients;
@@ -1862,6 +2009,24 @@ void CmdMaxplayersCallback()
 	g_Players.MaxPlayersChanged();
 }
 
+#if SOURCE_ENGINE == SE_CSGO
+bool PlayerManager::HandleConVarQuery(QueryCvarCookie_t cookie, int client, EQueryCvarValueStatus result, const char *cvarName, const char *cvarValue)
+{
+	for (int i = 1; i <= m_maxClients; i++)
+	{
+		if (m_Players[i].m_LanguageCookie == cookie)
+		{
+			unsigned int langid;
+			m_Players[i].m_LangId = (translator->GetLanguageByName(cvarValue, &langid)) ? langid : translator->GetServerLanguage();
+
+			return true;
+		}
+	}
+
+	return false;
+}
+#endif
+
 
 /*******************
  *** PLAYER CODE ***
@@ -1885,7 +2050,9 @@ CPlayer::CPlayer()
 	m_bIsSourceTV = false;
 	m_bIsReplay = false;
 	m_Serial.value = -1;
-	m_SteamAccountID = 0;
+#if SOURCE_ENGINE == SE_CSGO
+	m_LanguageCookie = InvalidQueryCvarCookie;
+#endif
 }
 
 void CPlayer::Initialize(const char *name, const char *ip, edict_t *pEntity)
@@ -1901,12 +2068,14 @@ void CPlayer::Initialize(const char *name, const char *ip, edict_t *pEntity)
 	m_Serial.bits.serial = g_PlayerSerialCount++;
 
 	char ip2[24], *ptr;
-	strncopy(ip2, ip, sizeof(ip2));
+	ke::SafeStrcpy(ip2, sizeof(ip2), ip);
 	if ((ptr = strchr(ip2, ':')) != NULL)
 	{
 		*ptr = '\0';
 	}
 	m_IpNoPort.assign(ip2);
+
+	UpdateAuthIds();
 }
 
 void CPlayer::Connect()
@@ -1931,14 +2100,112 @@ void CPlayer::Connect()
 	}
 }
 
-void CPlayer::SetAuthString(const char *steamid)
+void CPlayer::UpdateAuthIds()
 {
 	if (m_IsAuthorized)
 	{
 		return;
 	}
+	
+	// First cache engine networkid
+	const char *authstr;
+#if SOURCE_ENGINE == SE_DOTA
+	authstr = engine->GetPlayerNetworkIDString(m_iIndex - 1);
+#else
+	authstr = engine->GetPlayerNetworkIDString(m_pEdict);
+#endif
 
-	m_AuthID.assign(steamid);
+	if (!authstr)
+	{
+		// engine doesn't have the client's auth string just yet, we can't do anything
+		return;
+	}
+
+	if (m_AuthID.compare(authstr) == 0)
+	{
+		return;
+	}
+
+	m_AuthID = authstr;
+	
+	// Then, cache SteamId
+	if (IsFakeClient())
+	{
+		m_SteamId = k_steamIDNil;
+	}
+	else
+	{
+#if SOURCE_ENGINE < SE_ORANGEBOX
+		const char * pAuth = GetAuthString();
+		/* STEAM_0:1:123123 | STEAM_ID_LAN | STEAM_ID_PENDING */
+		if (pAuth && (strlen(pAuth) > 10) && pAuth[8] != '_')
+		{
+			m_SteamId = CSteamID(atoi(&pAuth[8]) | (atoi(&pAuth[10]) << 1),
+				k_unSteamUserDesktopInstance, k_EUniversePublic, k_EAccountTypeIndividual);
+		}
+#else
+		const CSteamID *steamId;
+#if SOURCE_ENGINE == SE_DOTA
+		steamId = engine->GetClientSteamID(m_iIndex);
+#else
+		steamId = engine->GetClientSteamID(m_pEdict);
+#endif
+
+		if (steamId)
+		{
+			m_SteamId = (*steamId);
+		}
+#endif
+	}
+	
+	// Now cache Steam2/3 rendered ids
+	if (IsFakeClient())
+	{
+		m_Steam2Id = "BOT";
+		m_Steam3Id = "BOT";
+		return;
+	}
+	
+	if (!m_SteamId.IsValid())
+	{
+		if (g_HL2.IsLANServer())
+		{
+			m_Steam2Id = "STEAM_ID_LAN";
+			m_Steam3Id = "STEAM_ID_LAN";
+			return;
+		}
+		else
+		{
+			m_Steam2Id = "STEAM_ID_PENDING";
+			m_Steam3Id = "STEAM_ID_PENDING";
+		}
+		
+		return;
+	}
+	
+	EUniverse steam2universe = m_SteamId.GetEUniverse();
+	const char *keyUseInvalidUniverse = g_pGameConf->GetKeyValue("UseInvalidUniverseInSteam2IDs");
+	if (keyUseInvalidUniverse && atoi(keyUseInvalidUniverse) == 1)
+	{
+		steam2universe = k_EUniverseInvalid;
+	}
+	
+	char szAuthBuffer[64];
+	snprintf(szAuthBuffer, sizeof(szAuthBuffer), "STEAM_%u:%u:%u", steam2universe, m_SteamId.GetAccountID() & 1, m_SteamId.GetAccountID() >> 1);
+	
+	m_Steam2Id = szAuthBuffer;
+	
+	// TODO: make sure all hl2sdks' steamclientpublic.h have k_unSteamUserDesktopInstance.
+	if (m_SteamId.GetUnAccountInstance() == 1 /* k_unSteamUserDesktopInstance */)
+	{
+		snprintf(szAuthBuffer, sizeof(szAuthBuffer), "[U:%u:%u]", m_SteamId.GetEUniverse(), m_SteamId.GetAccountID());
+	}
+	else
+	{
+		snprintf(szAuthBuffer, sizeof(szAuthBuffer), "[U:%u:%u:%u]", m_SteamId.GetEUniverse(), m_SteamId.GetAccountID(), m_SteamId.GetUnAccountInstance());
+	}
+	
+	m_Steam3Id = szAuthBuffer;
 }
 
 // Ensure a valid AuthString is set before calling.
@@ -1955,7 +2222,10 @@ void CPlayer::Disconnect()
 	m_IsAuthorized = false;
 	m_Name.clear();
 	m_Ip.clear();
-	m_AuthID.clear();
+	m_AuthID = "";
+	m_SteamId = k_steamIDNil;
+	m_Steam2Id = "";
+	m_Steam3Id = "";
 	m_pEdict = NULL;
 	m_Info = NULL;
 	m_bAdminCheckSignalled = false;
@@ -1965,7 +2235,9 @@ void CPlayer::Disconnect()
 	m_bIsSourceTV = false;
 	m_bIsReplay = false;
 	m_Serial.value = -1;
-	m_SteamAccountID = 0;
+#if SOURCE_ENGINE == SE_CSGO
+	m_LanguageCookie = InvalidQueryCvarCookie;
+#endif
 }
 
 void CPlayer::SetName(const char *name)
@@ -1995,42 +2267,50 @@ const char *CPlayer::GetAuthString(bool validated)
 		return NULL;
 	}
 
-	return m_AuthID.c_str();
+	return m_AuthID.chars();
+}
+
+const CSteamID &CPlayer::GetSteamId(bool validated)
+{
+	if (validated && !IsAuthStringValidated())
+	{
+		static const CSteamID invalidId = k_steamIDNil;
+		return invalidId;
+	}
+	
+	return m_SteamId;
+}
+
+const char *CPlayer::GetSteam2Id(bool validated)
+{
+	if (!m_Steam2Id.length() || (validated && !IsAuthStringValidated()))
+	{
+		return NULL;
+	}
+
+	return m_Steam2Id.chars();
+}
+
+const char *CPlayer::GetSteam3Id(bool validated)
+{
+	if (!m_Steam3Id.length() || (validated && !IsAuthStringValidated()))
+	{
+		return NULL;
+	}
+
+	return m_Steam3Id.chars();
 }
 
 unsigned int CPlayer::GetSteamAccountID(bool validated)
 {
-	if (IsFakeClient() || (validated && !IsAuthStringValidated()))
+	if (!IsFakeClient() && (!validated || IsAuthStringValidated()))
 	{
-		return 0;
+		const CSteamID &id = GetSteamId();
+		if (id.IsValid())
+			return id.GetAccountID();
 	}
-
-	if (m_SteamAccountID != 0)
-	{
-		return m_SteamAccountID;
-	}
-
-#if SOURCE_ENGINE < SE_ORANGEBOX
-	const char * pAuth = GetAuthString();
-	/* STEAM_0:1:123123 | STEAM_ID_LAN | STEAM_ID_PENDING */
-	if (pAuth && (strlen(pAuth) > 10) && pAuth[8] != '_')
-	{
-		m_SteamAccountID = (atoi(&pAuth[8]) | (atoi(&pAuth[10]) << 1));
-	}
-#else
-	unsigned long long *steamId;
-#if SOURCE_ENGINE == SE_DOTA
-	steamId = (unsigned long long *)engine->GetClientSteamID(m_iIndex);
-#else
-	steamId = (unsigned long long *)engine->GetClientSteamID(m_pEdict);
-#endif
-
-	if (steamId)
-	{
-		m_SteamAccountID = (*steamId & 0xFFFFFFFF);
-	}
-#endif
-	return m_SteamAccountID;
+	
+	return 0;
 }
 
 edict_t *CPlayer::GetEdict()
@@ -2151,7 +2431,7 @@ void CPlayer::Kick(const char *str)
 		if (userid > 0)
 		{
 			char buffer[255];
-			UTIL_Format(buffer, sizeof(buffer), "kickid %d %s\n", userid, str);
+			ke::SafeSprintf(buffer, sizeof(buffer), "kickid %d %s\n", userid, str);
 			engine->ServerCommand(buffer);
 		}
 	}
@@ -2296,7 +2576,7 @@ void CPlayer::DoBasicAdminChecks()
 	}
 
 	/* Check steam id */
-	if ((id = adminsys->FindAdminByIdentity("steam", m_AuthID.c_str())) != INVALID_ADMIN_ID)
+	if ((id = adminsys->FindAdminByIdentity("steam", m_AuthID.chars())) != INVALID_ADMIN_ID)
 	{
 		if (g_Players.CheckSetAdmin(client, this, id))
 		{

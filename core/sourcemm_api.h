@@ -47,9 +47,9 @@
 #include <eiface.h>
 #include <igameevents.h>
 #include <iplayerinfo.h>
-#include <random.h>
 #include <filesystem.h>
 #include <IEngineSound.h>
+#include <toolframework/itoolentity.h>
 
 #ifndef METAMOD_PLAPI_VERSION
 	#include <metamod_wrappers.h>
@@ -80,11 +80,7 @@ public:
 	const char *GetLogTag();
 public:
 	void OnVSPListening(IServerPluginCallbacks *iface);
-#if defined METAMOD_PLAPI_VERSION || PLAPI_VERSION >= 11
 	void OnUnlinkConCommandBase(PluginId id, ConCommandBase *pCommand);
-#else
-	void OnPluginUnload(PluginId id);
-#endif
 	void *OnMetamodQuery(const char *iface, int *ret);
 };
 
@@ -98,11 +94,13 @@ extern CGlobalVars *gpGlobals;
 extern IGameEventManager2 *gameevents;
 extern SourceHook::CallClass<IVEngineServer> *enginePatch;
 extern SourceHook::CallClass<IServerGameDLL> *gamedllPatch;
-extern IUniformRandomStream *engrandom;
 extern IPlayerInfoManager *playerinfo;
 extern IBaseFileSystem *basefilesystem;
 extern IFileSystem *filesystem;
 extern IEngineSound *enginesound;
+#if SOURCE_ENGINE >= SE_ORANGEBOX
+extern IServerTools *servertools;
+#endif
 extern IServerPluginHelpers *serverpluginhelpers;
 extern IServerPluginCallbacks *vsp_interface;
 extern int vsp_version;

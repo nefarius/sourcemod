@@ -44,12 +44,16 @@
 #include <ISDKTools.h>
 #include "clientnatives.h"
 #include "teamnatives.h"
+#include "filesystem.h"
 /**
  * @file extension.cpp
  * @brief Implements SDK Tools extension code.
  */
 
 SH_DECL_HOOK6(IServerGameDLL, LevelInit, SH_NOATTRIB, false, bool, const char *, const char *, const char *, const char *, bool, bool);
+#if SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_CSGO
+SH_DECL_HOOK1_void_vafmt(IVEngineServer, ClientCommand, SH_NOATTRIB, 0, edict_t *);
+#endif
 
 SDKTools g_SdkTools;		/**< Global singleton for extension's main interface */
 IServerGameEnts *gameents = NULL;
@@ -65,7 +69,9 @@ IVoiceServer *voiceserver = NULL;
 IPlayerInfoManager *playerinfomngr = NULL;
 ICvar *icvar = NULL;
 IServer *iserver = NULL;
+IBaseFileSystem *basefilesystem = NULL;
 CGlobalVars *gpGlobals;
+ISoundEmitterSystemBase *soundemitterbase = NULL;
 
 #if SOURCE_ENGINE >= SE_ORANGEBOX
 IServerTools *servertools = NULL;
@@ -254,15 +260,29 @@ bool SDKTools::SDK_OnMetamodLoad(ISmmAPI *ismm, char *error, size_t maxlen, bool
 	GET_V_IFACE_ANY(GetEngineFactory, voiceserver, IVoiceServer, INTERFACEVERSION_VOICESERVER);
 	GET_V_IFACE_ANY(GetServerFactory, playerinfomngr, IPlayerInfoManager, INTERFACEVERSION_PLAYERINFOMANAGER);
 	GET_V_IFACE_CURRENT(GetEngineFactory, icvar, ICvar, CVAR_INTERFACE_VERSION);
+	GET_V_IFACE_CURRENT(GetFileSystemFactory, basefilesystem, IBaseFileSystem, BASEFILESYSTEM_INTERFACE_VERSION);
 
 #if SOURCE_ENGINE >= SE_ORANGEBOX
 	GET_V_IFACE_ANY(GetServerFactory, servertools, IServerTools, VSERVERTOOLS_INTERFACE_VERSION);
+#endif
+	GET_V_IFACE_ANY(GetEngineFactory, soundemitterbase, ISoundEmitterSystemBase, SOUNDEMITTERSYSTEM_INTERFACE_VERSION);
+
+#if SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_CSGO
+	SH_ADD_HOOK(IVEngineServer, ClientCommand, engine, SH_MEMBER(this, &SDKTools::OnSendClientCommand), false);
 #endif
 
 	gpGlobals = ismm->GetCGlobals();
 	enginePatch = SH_GET_CALLCLASS(engine);
 	enginesoundPatch = SH_GET_CALLCLASS(engsound);
 
+	return true;
+}
+
+bool SDKTools::SDK_OnMetamodUnload(char *error, size_t maxlen)
+{
+#if SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_CSGO
+	SH_REMOVE_HOOK(IVEngineServer, ClientCommand, engine, SH_MEMBER(this, &SDKTools::OnSendClientCommand), false);
+#endif
 	return true;
 }
 
@@ -338,6 +358,10 @@ bool SDKTools::RegisterConCommandBase(ConCommandBase *pVar)
 
 bool SDKTools::LevelInit(char const *pMapName, char const *pMapEntities, char const *pOldLevel, char const *pLandmarkName, bool loadGame, bool background)
 {
+	m_bAnyLevelInited = true;
+
+	UpdateValveGlobals();
+
 	const char *name;
 	char key[32];
 	int count, n = 1;
@@ -445,6 +469,28 @@ const char *SDKTools::GetExtensionDateString()
 	return SOURCEMOD_BUILD_TIME;
 }
 
+bool SDKTools::InterceptClientConnect(int client, char *error, size_t maxlength)
+{
+	g_Hooks.OnClientConnect(client);
+	return true;
+}
+
+#if SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_CSGO
+void SDKTools::OnSendClientCommand(edict_t *pPlayer, const char *szFormat)
+{
+	// Due to legacy code, CS:S and CS:GO still sends "name \"newname\"" to the
+	// client after aname change. The engine has a change hook on name causing
+	// it to reset to the player's Steam name. This quashes that to make
+	// SetClientName work properly.
+	if (!strncmp(szFormat, "name ", 5))
+	{
+		RETURN_META(MRES_SUPERCEDE);
+	}
+
+	RETURN_META(MRES_IGNORED);
+}
+#endif
+
 void SDKTools::OnClientPutInServer(int client)
 {
 	g_Hooks.OnClientPutInServer(client);
@@ -470,10 +516,7 @@ public:
 	
 	virtual void *GetGameRules()
 	{
-		if (!g_pGameRules)
-			return NULL;
-		
-		return *g_pGameRules;
+		return GameRules();
 	}
 } g_SDKTools_API;
 

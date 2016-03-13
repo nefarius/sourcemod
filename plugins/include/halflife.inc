@@ -53,7 +53,7 @@
 #define MOTDPANEL_TYPE_TEXT		0	/**< Treat msg as plain text */
 #define MOTDPANEL_TYPE_INDEX	1	/**< Msg is auto determined by the engine */
 #define MOTDPANEL_TYPE_URL		2	/**< Treat msg as an URL link */
-#define MOTDPANEL_TYPE_FILE		3	/**< Treat msg as a filename to be openned */
+#define MOTDPANEL_TYPE_FILE		3	/**< Treat msg as a filename to be opened */
 
 enum DialogType
 {
@@ -88,6 +88,26 @@ enum EngineVersion
 	Engine_Blade,				/**< Blade Symphony */
 	Engine_Insurgency,			/**< Insurgency (2013 Retail version)*/
 	Engine_Contagion,			/**< Contagion */
+	Engine_BlackMesa,			/**< Black Mesa Multiplayer */
+};
+
+enum FindMapResult
+{
+	// A direct match for this name was found
+	FindMap_Found,
+	// No match for this map name could be found.
+	FindMap_NotFound,
+	// A fuzzy match for this map name was found.
+	// Ex: cp_dust -> cp_dustbowl, c1m1 -> c1m1_hotel
+	// Only supported for maps that the engine knows about. (This excludes workshop maps on Orangebox).
+	FindMap_FuzzyMatch,
+	// A non-canonical match for this map name was found.
+	// Ex: workshop/1234 -> workshop/cp_qualified_name.ugc1234
+	// Only supported on "Orangebox" games with workshop support.
+	FindMap_NonCanonical,
+	// No currently available match for this map name could be found, but it may be possible to load
+	// Only supported on "Orangebox" games with workshop support.
+	FindMap_PossiblyAvailable
 };
 
 #define INVALID_ENT_REFERENCE 0xFFFFFFFF
@@ -134,6 +154,36 @@ native GetRandomInt(nmin, nmax);
  * @return				True if valid, false otherwise.
  */
 native bool:IsMapValid(const String:map[]);
+
+/**
+ * Returns whether a full or partial map name is found or can be resolved
+ * 
+ * @param map 			Map name (usually same as map path relative to maps/ dir,
+ *						excluding .bsp extension).
+ * @param foundmap		Resolved map name. If the return is FindMap_FuzzyMatch
+ *						or FindMap_NonCanonical the buffer will be the full path.
+ * @param maxlen		Maximum length to write to map var.
+ * @return				Result of the find operation. Not all result types are supported on all games.
+ */
+native FindMapResult FindMap(const char[] map, char[] foundmap, int maxlen);
+
+/**
+ * Get the display name of a workshop map.
+ * 
+ * Note: You do not need to call FindMap first.  This native will call FindMap internally.
+ * 
+ * @param map 			Map name (usually same as map path relative to maps/ dir,
+ *						excluding .bsp extension).
+ * @param displayName	Map's display name, i.e. cp_mymapname or de_mymapname.
+ *						If FindMap returns FindMap_PossiblyAvailable or FindMap_NotFound,
+ *						the map cannot be resolved and this native will return false,
+ *						but displayName will be a copy of map.
+ * @param maxlen		Maximum length to write to displayName var.
+ * @return				true if FindMap returns FindMap_Found, FindMap_FuzzyMatch, or
+ * 						FindMap_NonCanonical.
+ * 						false if FindMap returns FindMap_PossiblyAvailable or FindMap_NotFound.
+ */
+native bool GetMapDisplayName(const char[] map, char[] displayName, int maxlen);
 
 /**
  * Returns whether the server is dedicated.
@@ -323,7 +373,7 @@ native PrintToChat(client, const String:format[], any:...);
  */
 stock PrintToChatAll(const String:format[], any:...)
 {
-	decl String:buffer[192];
+	decl String:buffer[254];
 	
 	for (new i = 1; i <= MaxClients; i++)
 	{
@@ -356,7 +406,7 @@ native PrintCenterText(client, const String:format[], any:...);
  */
 stock PrintCenterTextAll(const String:format[], any:...)
 {
-	decl String:buffer[192];
+	decl String:buffer[254];
 
 	for (new i = 1; i <= MaxClients; i++)
 	{
@@ -389,7 +439,7 @@ native PrintHintText(client, const String:format[], any:...);
  */
 stock PrintHintTextToAll(const String:format[], any:...)
 {
-	decl String:buffer[192];
+	decl String:buffer[254];
 	
 	for (new i = 1; i <= MaxClients; i++)
 	{
@@ -568,15 +618,15 @@ native ShowHudText(client, channel, const String:message[], any:...);
  */
 stock ShowMOTDPanel(client, const String:title[], const String:msg[], type=MOTDPANEL_TYPE_INDEX)
 {
-	decl String:num[3];
-	new Handle:Kv = CreateKeyValues("data");
+	char num[3];
 	IntToString(type, num, sizeof(num));
 
-	KvSetString(Kv, "title", title);
-	KvSetString(Kv, "type", num);
-	KvSetString(Kv, "msg", msg);
-	ShowVGUIPanel(client, "info", Kv);
-	CloseHandle(Kv);
+	KeyValues kv = new KeyValues("data");
+	kv.SetString("title", title);
+	kv.SetString("type", num);
+	kv.SetString("msg", msg);
+	ShowVGUIPanel(client, "info", kv);
+	delete kv;
 }
 
 /**
@@ -590,13 +640,14 @@ stock ShowMOTDPanel(client, const String:title[], const String:msg[], type=MOTDP
  */
 stock DisplayAskConnectBox(client, Float:time, const String:ip[], const String:password[] = "")
 {
-	decl String:destination[288];
+	char destination[288];
 	FormatEx(destination, sizeof(destination), "%s/%s", ip, password);
-	new Handle:Kv = CreateKeyValues("data");
-	KvSetFloat(Kv, "time", time);
-	KvSetString(Kv, "title", destination);
-	CreateDialog(client, Kv, DialogType_AskConnect);
-	CloseHandle(Kv);
+
+	KeyValues kv = new KeyValues("data");
+	kv.SetFloat("time", time);
+	kv.SetString("title", destination);
+	CreateDialog(client, kv, DialogType_AskConnect);
+	delete kv;
 }
 
 /**
@@ -622,4 +673,22 @@ native EntRefToEntIndex(ref);
  * @return				Bcompat reference.
  */
 native MakeCompatEntRef(ref);
+
+
+enum ClientRangeType
+{
+	RangeType_Visibility = 0,
+	RangeType_Audibility,
+}
+
+/**
+ * Find clients that are potentially in range of a position.
+ *
+ * @param origin		Coordinates from which to test range.
+ * @param rangeType		Range type to use for filtering clients.
+ * @param clients		Array to which found client indexes will be written.
+ * @param size			Maximum size of clients array.
+ * @return				Number of client indexes written to clients array.
+ */
+native int GetClientsInRange(float origin[3], ClientRangeType rangeType, int[] clients, int size);
 

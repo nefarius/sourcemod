@@ -35,6 +35,9 @@
 #include <IPlayerHelpers.h>
 #include <ISourceMod.h>
 #include <ITranslator.h>
+#include "sprintf.h"
+#include <bridge/include/CoreProvider.h>
+#include <bridge/include/IVEngineServerBridge.h>
 
 static cell_t CheckCommandAccess(IPluginContext *pContext, const cell_t *params)
 {
@@ -51,7 +54,7 @@ static cell_t CheckCommandAccess(IPluginContext *pContext, const cell_t *params)
 	bool found_command = false;
 	if (params[0] < 4 || !params[4])
 	{
-		found_command = smcore.LookForCommandAdminFlags(cmd, &bits);
+		found_command = bridge->LookForCommandAdminFlags(cmd, &bits);
 	}
 
 	if (!found_command)
@@ -72,7 +75,7 @@ static cell_t CheckAccess(IPluginContext *pContext, const cell_t *params)
 	bool found_command = false;
 	if (params[0] < 4 || !params[4])
 	{
-		found_command = smcore.LookForCommandAdminFlags(cmd, &bits);
+		found_command = bridge->LookForCommandAdminFlags(cmd, &bits);
 	}
 
 	if (!found_command)
@@ -90,12 +93,12 @@ static cell_t sm_PrintToServer(IPluginContext *pCtx, const cell_t *params)
 	int arg = 2;
 
 	pCtx->LocalToString(params[1], &fmt);
-	size_t res = smcore.atcprintf(buffer, sizeof(buffer) - 2, fmt, pCtx, params, &arg);
+	size_t res = atcprintf(buffer, sizeof(buffer) - 2, fmt, pCtx, params, &arg);
 
 	buffer[res++] = '\n';
 	buffer[res] = '\0';
 
-	smcore.ConPrint(buffer);
+	bridge->ConPrint(buffer);
 
 	return 1;
 }
@@ -129,7 +132,7 @@ static cell_t sm_PrintToConsole(IPluginContext *pCtx, const cell_t *params)
 	int arg = 3;
 
 	pCtx->LocalToString(params[2], &fmt);
-	size_t res = smcore.atcprintf(buffer, sizeof(buffer) - 2, fmt, pCtx, params, &arg);
+	size_t res = atcprintf(buffer, sizeof(buffer) - 2, fmt, pCtx, params, &arg);
 
 	buffer[res++] = '\n';
 	buffer[res] = '\0';
@@ -139,7 +142,7 @@ static cell_t sm_PrintToConsole(IPluginContext *pCtx, const cell_t *params)
 		pPlayer->PrintToConsole(buffer);
 	}
 	else {
-		smcore.ConPrint(buffer);
+		bridge->ConPrint(buffer);
 	}
 
 	return 1;
@@ -150,11 +153,12 @@ static cell_t sm_ServerCommand(IPluginContext *pContext, const cell_t *params)
 	g_pSM->SetGlobalTarget(SOURCEMOD_SERVER_LANGUAGE);
 
 	char buffer[1024];
-	size_t len = g_pSM->FormatString(buffer, sizeof(buffer) - 2, pContext, params, 1);
-
-	if (pContext->GetLastNativeError() != SP_ERROR_NONE)
+	size_t len;
 	{
-		return 0;
+		DetectExceptions eh(pContext);
+		len = g_pSM->FormatString(buffer, sizeof(buffer) - 2, pContext, params, 1);
+		if (eh.HasException())
+			return 0;
 	}
 
 	/* One byte for null terminator, one for newline */
@@ -171,11 +175,12 @@ static cell_t sm_InsertServerCommand(IPluginContext *pContext, const cell_t *par
 	g_pSM->SetGlobalTarget(SOURCEMOD_SERVER_LANGUAGE);
 
 	char buffer[1024];
-	size_t len = g_pSM->FormatString(buffer, sizeof(buffer) - 2, pContext, params, 1);
-
-	if (pContext->GetLastNativeError() != SP_ERROR_NONE)
+	size_t len;
 	{
-		return 0;
+		DetectExceptions eh(pContext);
+		len = g_pSM->FormatString(buffer, sizeof(buffer) - 2, pContext, params, 1);
+		if (eh.HasException())
+			return 0;
 	}
 
 	/* One byte for null terminator, one for newline */
@@ -211,11 +216,12 @@ static cell_t sm_ClientCommand(IPluginContext *pContext, const cell_t *params)
 	g_pSM->SetGlobalTarget(params[1]);
 
 	char buffer[256];
-	g_pSM->FormatString(buffer, sizeof(buffer), pContext, params, 2);
-
-	if (pContext->GetLastNativeError() != SP_ERROR_NONE)
+	size_t len;
 	{
-		return 0;
+		DetectExceptions eh(pContext);
+		g_pSM->FormatString(buffer, sizeof(buffer), pContext, params, 2);
+		if (eh.HasException())
+			return 0;
 	}
 
 	engine->ClientCommand(pPlayer->GetEdict(), buffer);
@@ -240,11 +246,11 @@ static cell_t FakeClientCommand(IPluginContext *pContext, const cell_t *params)
 	g_pSM->SetGlobalTarget(params[1]);
 
 	char buffer[256];
-	g_pSM->FormatString(buffer, sizeof(buffer), pContext, params, 2);
-
-	if (pContext->GetLastNativeError() != SP_ERROR_NONE)
 	{
-		return 0;
+		DetectExceptions eh(pContext);
+		g_pSM->FormatString(buffer, sizeof(buffer), pContext, params, 2);
+		if (eh.HasException())
+			return 0;
 	}
 
 	engine->FakeClientCommand(pPlayer->GetEdict(), buffer);
@@ -258,11 +264,13 @@ static cell_t ReplyToCommand(IPluginContext *pContext, const cell_t *params)
 
 	/* Build the format string */
 	char buffer[1024];
-	size_t len = g_pSM->FormatString(buffer, sizeof(buffer) - 2, pContext, params, 2);
-
-	if (pContext->GetLastNativeError() != SP_ERROR_NONE)
+	size_t len;
 	{
-		return 0;
+		DetectExceptions eh(pContext);
+		g_pSM->FormatString(buffer, sizeof(buffer), pContext, params, 2);
+		len = g_pSM->FormatString(buffer, sizeof(buffer) - 2, pContext, params, 2);
+		if (eh.HasException())
+			return 0;
 	}
 
 	/* If we're printing to the server, shortcut out */
@@ -271,7 +279,7 @@ static cell_t ReplyToCommand(IPluginContext *pContext, const cell_t *params)
 		/* Print */
 		buffer[len++] = '\n';
 		buffer[len] = '\0';
-		smcore.ConPrint(buffer);
+		bridge->ConPrint(buffer);
 		return 1;
 	}
 

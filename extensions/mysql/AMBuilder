@@ -7,14 +7,20 @@ if SM.mysql_root:
     os.path.join(SM.mysql_root, 'include'),
     os.path.join(SM.mms_root, 'core', 'sourcehook')
   ]
+  if binary.compiler.vendor == 'gcc' or binary.compiler.vendor == 'clang':
+    binary.compiler.cxxflags += ['-fno-rtti']
+  elif binary.compiler.vendor == 'msvc':
+    binary.compiler.cxxflags += ['/GR-']
 
   if builder.target_platform == 'linux' or builder.target_platform == 'mac':
     binary.compiler.postlink += [
       os.path.join(SM.mysql_root, 'lib', 'libmysqlclient_r.a'),
       '-lz',
       '-lpthread',
-      '-lm'
+      '-lm',
     ]
+  if builder.target_platform == 'linux':
+    binary.compiler.postlink += ['-lrt']
   elif builder.target_platform == 'windows':
     binary.compiler.postlink += [
       os.path.join(SM.mysql_root, 'lib', 'opt', 'mysqlclient.lib'),

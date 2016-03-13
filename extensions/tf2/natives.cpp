@@ -34,16 +34,18 @@
 #include "time.h"
 #include "RegNatives.h"
 
+#include <ISDKTools.h>
+
 // native TF2_MakeBleed(client, attacker, Float:duration)
 cell_t TF2_MakeBleed(IPluginContext *pContext, const cell_t *params)
 {
 	static ICallWrapper *pWrapper = NULL;
 
-	// CTFPlayerShared::MakeBleed(CTFPlayer*, CTFWeaponBase*, float, int=4)
+	// CTFPlayerShared::MakeBleed(CTFPlayer*, CTFWeaponBase*, float, int=4, bool=false)
 	if(!pWrapper)
 	{
 		REGISTER_NATIVE_ADDR("MakeBleed",
-			PassInfo pass[4]; \
+			PassInfo pass[5]; \
 			pass[0].flags = PASSFLAG_BYVAL; \
 			pass[0].size = sizeof(CBaseEntity *); \
 			pass[0].type = PassType_Basic; \
@@ -56,7 +58,10 @@ cell_t TF2_MakeBleed(IPluginContext *pContext, const cell_t *params)
 			pass[3].flags = PASSFLAG_BYVAL; \
 			pass[3].size = sizeof(int); \
 			pass[3].type = PassType_Basic; \
-			pWrapper = g_pBinTools->CreateCall(addr, CallConv_ThisCall, NULL, pass, 4))
+			pass[4].flags = PASSFLAG_BYVAL; \
+			pass[4].size = sizeof(bool); \
+			pass[4].type = PassType_Basic; \
+			pWrapper = g_pBinTools->CreateCall(addr, CallConv_ThisCall, NULL, pass, 5))
 	}
 
 	CBaseEntity *pEntity;
@@ -73,7 +78,7 @@ cell_t TF2_MakeBleed(IPluginContext *pContext, const cell_t *params)
 
 	void *obj = (void *)((uint8_t *)pEntity + playerSharedOffset->actual_offset);
 
-	unsigned char vstk[sizeof(void *) + 2*sizeof(CBaseEntity *) + sizeof(float)];
+	unsigned char vstk[sizeof(void *) + 2*sizeof(CBaseEntity *) + sizeof(float) + sizeof(int) + sizeof(bool)];
 	unsigned char *vptr = vstk;
 
 	*(void **)vptr = obj;
@@ -85,6 +90,8 @@ cell_t TF2_MakeBleed(IPluginContext *pContext, const cell_t *params)
 	*(float *)vptr = sp_ctof(params[3]);
 	vptr += sizeof(float);
 	*(int *)vptr = 4;
+	vptr += sizeof(int);
+	*(bool *)vptr = false;
 
 	pWrapper->Execute(vstk, NULL);
 
@@ -96,7 +103,7 @@ cell_t TF2_Burn(IPluginContext *pContext, const cell_t *params)
 {
 	static ICallWrapper *pWrapper = NULL;
 
-	// CTFPlayerShared::Burn(CTFPlayer*, CTFWeaponBase*)
+	// CTFPlayerShared::Burn(CTFPlayer*, CTFWeaponBase*, float=-1.0)
 	if (!pWrapper)
 	{
 		REGISTER_NATIVE_ADDR("Burn", 
@@ -127,7 +134,7 @@ cell_t TF2_Burn(IPluginContext *pContext, const cell_t *params)
 
 	void *obj = (void *)((uint8_t *)pEntity + playerSharedOffset->actual_offset);
 
-	unsigned char vstk[sizeof(void *) + 2*sizeof(CBaseEntity *)];
+	unsigned char vstk[sizeof(void *) + 2*sizeof(CBaseEntity *) + sizeof(float)];
 	unsigned char *vptr = vstk;
 
 	*(void **)vptr = obj;
@@ -153,7 +160,7 @@ cell_t TF2_Disguise(IPluginContext *pContext, const cell_t *params)
 {
 	static ICallWrapper *pWrapper = NULL;
 
-	//CTFPlayerShared::Disguise(int, int, CTFPlayer *)
+	//CTFPlayerShared::Disguise(int, int, CTFPlayer *, bool=true)
 	if (!pWrapper)
 	{
 		REGISTER_NATIVE_ADDR("Disguise", 
@@ -188,7 +195,7 @@ cell_t TF2_Disguise(IPluginContext *pContext, const cell_t *params)
 		return pContext->ThrowNativeError("Target client index %d is not valid", params[4]);
 	}
 
-	unsigned char vstk[sizeof(void *) + 2*sizeof(int) + sizeof(bool)];
+	unsigned char vstk[sizeof(void *) + 2*sizeof(int) + sizeof(CBaseEntity *) + sizeof(bool)];
 	unsigned char *vptr = vstk;
 
 
@@ -553,25 +560,41 @@ cell_t TF2_IsPlayerInDuel(IPluginContext *pContext, const cell_t *params)
 // native bool:TF2_IsHolidayActive(TFHoliday:holiday);
 cell_t TF2_IsHolidayActive(IPluginContext *pContext, const cell_t *params)
 {
-	static ICallWrapper *pWrapper = NULL;
-
-	// UTIL_IsHolidayActive(int)
-	if (!pWrapper)
+	void *pGameRules;
+	if (!g_pSDKTools || !(pGameRules = g_pSDKTools->GetGameRules()))
 	{
-		REGISTER_NATIVE_ADDR("IsHolidayActive", 
-			PassInfo pass[1]; \
-			pass[0].flags = PASSFLAG_BYVAL; \
-			pass[0].size = sizeof(int); \
-			pass[0].type = PassType_Basic; \
-			PassInfo ret; \
-			ret.flags = PASSFLAG_BYVAL; \
-			ret.size = sizeof(bool); \
-			ret.type = PassType_Basic; \
-			pWrapper = g_pBinTools->CreateCall(addr, CallConv_Cdecl, &ret, pass, 1))
+		return pContext->ThrowNativeError("Failed to find GameRules");
 	}
 
-	unsigned char vstk[sizeof(int)];
+	static ICallWrapper *pWrapper = NULL;
+
+	// CTFGameRules::IsHolidayActive(int)
+	if (!pWrapper)
+	{
+		int offset;
+		if (!g_pGameConf->GetOffset("IsHolidayActive", &offset))
+		{
+			return pContext->ThrowNativeError("Failed to locate function");
+		}
+
+		PassInfo pass[1];
+		pass[0].flags = PASSFLAG_BYVAL;
+		pass[0].size = sizeof(int);
+		pass[0].type = PassType_Basic;
+		PassInfo ret;
+		ret.flags = PASSFLAG_BYVAL;
+		ret.size = sizeof(bool);
+		ret.type = PassType_Basic;
+
+		pWrapper = g_pBinTools->CreateVCall(offset, 0, 0, &ret, pass, 1);
+
+		g_RegNatives.Register(pWrapper);
+	}
+
+	unsigned char vstk[sizeof(void *) + sizeof(int)];
 	unsigned char *vptr = vstk;
+	*(void **)vptr = pGameRules;
+	vptr += sizeof(void *);
 	*(int *)vptr = params[1];
 	
 	bool retValue;
@@ -579,6 +602,55 @@ cell_t TF2_IsHolidayActive(IPluginContext *pContext, const cell_t *params)
 	pWrapper->Execute(vstk, &retValue);
 
 	return (retValue) ? 1 : 0;
+}
+
+cell_t TF2_RemoveWearable(IPluginContext *pContext, const cell_t *params)
+{
+	static ICallWrapper *pWrapper = NULL;
+
+	//CBasePlayer::RemoveWearable(CEconWearable *)
+
+	if (!pWrapper)
+	{
+		int offset;
+
+		if (!g_pGameConf->GetOffset("RemoveWearable", &offset))
+		{
+			return pContext->ThrowNativeError("Failed to locate function");
+		}
+
+		PassInfo pass[1];
+		pass[0].flags = PASSFLAG_BYVAL;
+		pass[0].size = sizeof(CBaseEntity *);
+		pass[0].type = PassType_Basic;
+
+		pWrapper = g_pBinTools->CreateVCall(offset, 0, 0, NULL, pass, 1);
+
+		g_RegNatives.Register(pWrapper);
+	}
+
+	CBaseEntity *pEntity;
+	if (!(pEntity = UTIL_GetCBaseEntity(params[1], true)))
+	{
+		return pContext->ThrowNativeError("Client index %d is not valid", params[1]);
+	}
+
+	CBaseEntity *pWearable;
+	if (!(pWearable = UTIL_GetCBaseEntity(params[2], false)))
+	{
+		return pContext->ThrowNativeError("Wearable index %d is not valid", params[2]);
+	}
+
+	unsigned char vstk[sizeof(void *) + sizeof(CBaseEntity *)];
+	unsigned char *vptr = vstk;
+
+	*(void **)vptr = (void *)pEntity;
+	vptr += sizeof(void *);
+	*(CBaseEntity **)vptr = pWearable;
+
+	pWrapper->Execute(vstk, NULL);
+
+	return 1;
 }
 
 sp_nativeinfo_t g_TFNatives[] = 
@@ -598,5 +670,6 @@ sp_nativeinfo_t g_TFNatives[] =
 	{"TF2_MakeBleed",				TF2_MakeBleed},
 	{"TF2_IsPlayerInDuel",				TF2_IsPlayerInDuel},
 	{"TF2_IsHolidayActive",				TF2_IsHolidayActive},
+	{"TF2_RemoveWearable",			TF2_RemoveWearable},
 	{NULL,							NULL}
 };

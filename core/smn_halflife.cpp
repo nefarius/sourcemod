@@ -1,5 +1,5 @@
 /**
- * vim: set ts=4 :
+ * vim: set ts=4 sw=4 tw=99 noet :
  * =============================================================================
  * SourceMod
  * Copyright (C) 2004-2010 AlliedModders LLC.  All rights reserved.
@@ -35,9 +35,11 @@
 #include "PlayerManager.h"
 #include "HalfLife2.h"
 
+#include <vstdlib/random.h>
+
 static cell_t SetRandomSeed(IPluginContext *pContext, const cell_t *params)
 {
-	engrandom->SetSeed(params[1]);
+	::RandomSeed(params[1]);
 
 	return 1;
 }
@@ -47,14 +49,14 @@ static cell_t GetRandomFloat(IPluginContext *pContext, const cell_t *params)
 	float fMin = sp_ctof(params[1]);
 	float fMax = sp_ctof(params[2]);
 
-	float fRandom = engrandom->RandomFloat(fMin, fMax);
+	float fRandom = ::RandomFloat(fMin, fMax);
 
 	return sp_ftoc(fRandom);
 }
 
 static cell_t GetRandomInt(IPluginContext *pContext, const cell_t *params)
 {
-	return engrandom->RandomInt(params[1], params[2]);
+	return ::RandomInt(params[1], params[2]);
 }
 
 static cell_t IsMapValid(IPluginContext *pContext, const cell_t *params)
@@ -63,6 +65,29 @@ static cell_t IsMapValid(IPluginContext *pContext, const cell_t *params)
 	pContext->LocalToString(params[1], &map);
 
 	return g_HL2.IsMapValid(map);
+}
+
+static cell_t FindMap(IPluginContext *pContext, const cell_t *params)
+{
+	char *pMapname;
+	pContext->LocalToString(params[1], &pMapname);
+
+	if (params[0] == 2)
+	{
+		return static_cast<cell_t>(g_HL2.FindMap(pMapname, params[2]));
+	}
+
+	char *pDestMap;
+	pContext->LocalToString(params[2], &pDestMap);
+	return static_cast<cell_t>(g_HL2.FindMap(pMapname, pDestMap, params[3]));
+}
+
+static cell_t GetMapDisplayName(IPluginContext *pContext, const cell_t *params)
+{
+	char *pMapname, *pDisplayname;
+	pContext->LocalToString(params[1], &pMapname);
+	pContext->LocalToString(params[2], &pDisplayname);
+	return static_cast<cell_t>(g_HL2.GetMapDisplayName(pMapname, pDisplayname, params[3]));
 }
 
 static cell_t IsDedicatedServer(IPluginContext *pContext, const cell_t *params)
@@ -318,13 +343,13 @@ static cell_t PrintToChat(IPluginContext *pContext, const cell_t *params)
 
 	g_SourceMod.SetGlobalTarget(client);
 
-	char buffer[192];
-	g_SourceMod.FormatString(buffer, sizeof(buffer), pContext, params, 2);
+	char buffer[254];
 
-	/* Check for an error before printing to the client */
-	if (pContext->GetLastNativeError() != SP_ERROR_NONE)
 	{
-		return 0;
+		DetectExceptions eh(pContext);
+		g_SourceMod.FormatString(buffer, sizeof(buffer), pContext, params, 2);
+		if (eh.HasException())
+			return 0;
 	}
 
 	if (!g_HL2.TextMsg(client, HUD_PRINTTALK, buffer))
@@ -352,13 +377,13 @@ static cell_t PrintCenterText(IPluginContext *pContext, const cell_t *params)
 
 	g_SourceMod.SetGlobalTarget(client);
 
-	char buffer[192];
-	g_SourceMod.FormatString(buffer, sizeof(buffer), pContext, params, 2);
-
-	/* Check for an error before printing to the client */
-	if (pContext->GetLastNativeError() != SP_ERROR_NONE)
+	char buffer[254];
+	
 	{
-		return 0;
+		DetectExceptions eh(pContext);
+		g_SourceMod.FormatString(buffer, sizeof(buffer), pContext, params, 2);
+		if (eh.HasException())
+			return 0;
 	}
 
 	if (!g_HL2.TextMsg(client, HUD_PRINTCENTER, buffer))
@@ -386,13 +411,12 @@ static cell_t PrintHintText(IPluginContext *pContext, const cell_t *params)
 
 	g_SourceMod.SetGlobalTarget(client);
 
-	char buffer[192];
-	g_SourceMod.FormatString(buffer, sizeof(buffer), pContext, params, 2);
-
-	/* Check for an error before printing to the client */
-	if (pContext->GetLastNativeError() != SP_ERROR_NONE)
+	char buffer[254];
 	{
-		return 0;
+		DetectExceptions eh(pContext);
+		g_SourceMod.FormatString(buffer, sizeof(buffer), pContext, params, 2);
+		if (eh.HasException())
+			return 0;
 	}
 
 	if (!g_HL2.HintTextMsg(client, buffer))
@@ -471,7 +495,6 @@ static cell_t smn_IsPlayerAlive(IPluginContext *pContext, const cell_t *params)
 
 static cell_t GuessSDKVersion(IPluginContext *pContext, const cell_t *params)
 {
-#if defined METAMOD_PLAPI_VERSION || PLAPI_VERSION >= 11
 	int version = g_SMAPI->GetSourceEngineBuild();
 
 	switch (version)
@@ -481,7 +504,7 @@ static cell_t GuessSDKVersion(IPluginContext *pContext, const cell_t *params)
 	case SOURCE_ENGINE_EPISODEONE:
 		return 20;
 
-# if defined METAMOD_PLAPI_VERSION
+#if defined METAMOD_PLAPI_VERSION
 	/* Newer games. */
 	case SOURCE_ENGINE_DARKMESSIAH:
 		return 15;
@@ -497,6 +520,7 @@ static cell_t GuessSDKVersion(IPluginContext *pContext, const cell_t *params)
 	case SOURCE_ENGINE_HL2DM:
 	case SOURCE_ENGINE_DODS:
 	case SOURCE_ENGINE_TF2:
+	case SOURCE_ENGINE_BMS:
 	case SOURCE_ENGINE_SDK2013:
 		return 35;
 	case SOURCE_ENGINE_LEFT4DEAD:
@@ -513,18 +537,8 @@ static cell_t GuessSDKVersion(IPluginContext *pContext, const cell_t *params)
 		return 80;
 	case SOURCE_ENGINE_DOTA:
 		return 90;
-# endif
-	}
-#else
-	if (g_HL2.IsOriginalEngine())
-	{
-		return 10;
-	}
-	else
-	{
-		return 20;
-	}
 #endif
+	}
 
 	return 0;
 }
@@ -570,6 +584,47 @@ static cell_t ReferenceToBCompatRef(IPluginContext *pContext, const cell_t *para
 	return g_HL2.ReferenceToBCompatRef(params[1]);
 }
 
+// Must match ClientRangeType enum in halflife.inc
+enum class ClientRangeType : cell_t
+{
+	Visibility = 0,
+	Audibility,
+};
+
+static cell_t GetClientsInRange(IPluginContext *pContext, const cell_t *params)
+{
+	cell_t *origin;
+	pContext->LocalToPhysAddr(params[1], &origin);
+
+	Vector vOrigin(sp_ctof(origin[0]), sp_ctof(origin[1]), sp_ctof(origin[2]));
+
+	ClientRangeType rangeType = (ClientRangeType) params[2];
+
+	CBitVec<ABSOLUTE_PLAYER_LIMIT> players;
+	engine->Message_DetermineMulticastRecipients(rangeType == ClientRangeType::Audibility, vOrigin, players);
+
+	cell_t *outPlayers;
+	pContext->LocalToPhysAddr(params[3], &outPlayers);
+
+	int maxPlayers = params[4];
+	int curPlayers = 0;
+
+	int index = players.FindNextSetBit(0);
+	while (index > -1 && curPlayers < maxPlayers)
+	{
+		int entidx = index + 1;
+		CPlayer *pPlayer = g_Players.GetPlayerByIndex(entidx);
+		if (pPlayer && pPlayer->IsInGame())
+		{
+			outPlayers[curPlayers++] = entidx;
+		}
+
+		index = players.FindNextSetBit(index + 1);
+	}
+
+	return curPlayers;
+}
+
 REGISTER_NATIVES(halflifeNatives)
 {
 	{"CreateFakeClient",		CreateFakeClient},
@@ -583,6 +638,8 @@ REGISTER_NATIVES(halflifeNatives)
 	{"GetRandomInt",			GetRandomInt},
 	{"IsDedicatedServer",		IsDedicatedServer},
 	{"IsMapValid",				IsMapValid},
+	{"FindMap",					FindMap},
+	{"GetMapDisplayName",		GetMapDisplayName},
 	{"SetFakeClientConVar",		SetFakeClientConVar},
 	{"SetRandomSeed",			SetRandomSeed},
 	{"PrecacheModel",			PrecacheModel},
@@ -605,5 +662,6 @@ REGISTER_NATIVES(halflifeNatives)
 	{"EntIndexToEntRef",		IndexToReference},
 	{"EntRefToEntIndex",		ReferenceToIndex},
 	{"MakeCompatEntRef",		ReferenceToBCompatRef},
+	{"GetClientsInRange",		GetClientsInRange},
 	{NULL,						NULL},
 };

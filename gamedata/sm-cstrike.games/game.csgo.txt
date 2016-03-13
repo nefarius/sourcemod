@@ -13,6 +13,10 @@
 {
 	"csgo"
 	{
+		"Keys"
+		{
+			"GetWeaponPriceByteCheck"	"E9"
+		}
 		"Offsets"
 		{
 			//Offset of szClassName in CCSWeaponInfo 
@@ -33,27 +37,27 @@
 			"CTTeamScoreOffset"
 			{
 				"windows"	"98"
-				"linux"		"124"
+				"linux"		"109"
 				"mac"		"150"
 			}
 			//Offset into CheckRestartRound
 			"TTeamScoreOffset"
 			{
 				"windows"	"122"
-				"linux"		"159"
+				"linux"		"142"
 				"mac"		"185"
 			}
 			"ClanTagOffset"
 			{
 				"windows"	"12"
-				"linux"		"41"
+				"linux"		"29"
 				"mac"		"22"
 			}
 			//Offset into HandleCommand_Buy_Internal
 			"CCSPlayerInventoryOffset"
 			{
-				"windows"	"285"
-				"linux"		"87"
+				"windows"	"55"
+				"linux"		"70"
 				"mac"		"109"
 			}
 			"GetItemInLoadout"
@@ -61,6 +65,15 @@
 				"windows"	"8"
 				"linux"		"9"
 				"mac"		"9"
+			}
+			"GetWeaponPriceFunc"
+			{
+				"windows"	"98"
+			}
+			//This is GetWeaponPriceFunc offset -1 (only used by GDC)
+			"GetWeaponPriceFuncGDC"
+			{
+				"windows"	"97"
 			}
 		}
 		"Signatures"
@@ -75,28 +88,28 @@
 			"SwitchTeam"
 			{
 				"library"	"server"
-				"windows"	"\x55\x8B\xEC\x83\xEC\x10\x53\x56\x8B\x75\x08\x57\x8B"
+				"windows"	"\x55\x8B\xEC\x83\xEC\x10\x53\x56\x8B\x75\x08\x57\x8B\xF9\x85\xF6\x0F\x88\x2A\x2A\x2A\x2A\x3B\x35"
 				"linux"		"@_ZN9CCSPlayer10SwitchTeamEi"
 				"mac"		"@_ZN9CCSPlayer10SwitchTeamEi"
 			}
 			"HandleCommand_Buy_Internal"//Wildcard first 6 bytes for getting address for weapon price.
 			{
 				"library"		"server"
-				"windows"		"\x2A\x2A\x2A\x2A\x2A\x2A\x81\xEC\x2A\x2A\x2A\x2A\x83\x3D\x2A\x2A\x2A\x2A\x00\x53\x56\x57\x8B\xF9"
+				"windows"		"\x2A\x2A\x2A\x2A\x2A\x2A\x81\xEC\x2A\x2A\x2A\x2A\x53\x56\x57\x6A\x00\x8B\xF9\xE8\x2A\x2A\x2A\x2A\x33\xC9\x84\xC0"
 				"linux"			"@_ZN9CCSPlayer26HandleCommand_Buy_InternalEPKcib"
 				"mac"			"@_ZN9CCSPlayer26HandleCommand_Buy_InternalEPKcib"
 			}
 			"CSWeaponDrop"//Wildcard first 6 bytes for CS:S DM
 			{
 				"library"		"server"
-				"windows"		"\x2A\x2A\x2A\x2A\x2A\x2A\x81\xEC\x2A\x2A\x2A\x2A\x56\x8B\x75\x2A\x57\x6A\x00\x68"
-				"linux"			"@_ZN9CCSPlayer12CSWeaponDropEP17CBaseCombatWeaponbb"
-				"mac"			"@_ZN9CCSPlayer12CSWeaponDropEP17CBaseCombatWeaponbb"
+				"windows"		"\x2A\x2A\x2A\x2A\x2A\x2A\x81\xEC\x2A\x2A\x2A\x2A\x53\x8B\x5D\x08\x56\x57\x6A\x00\x68"
+				"linux"			"@_ZN9CCSPlayer12CSWeaponDropEP17CBaseCombatWeapon6Vectorb"
+				"mac"			"@_ZN9CCSPlayer12CSWeaponDropEP17CBaseCombatWeapon6Vectorb"
 			}
 			"TerminateRound"
 			{
-				"library"		"server"
-				"windows"		"\x55\x8B\xEC\x83\x2A\x2A\x83\x2A\x2A\x53\x56\x8B\xF1\xF3\x0F\x2A\x2A\x2A\x2A\x57\x33\xFF\x89\x2A\x2A\x2A\xC7\x2A\x2A\x2A\x00\x00\x00\x00"
+				"library"		"server"	
+				"windows"		"\x55\x8B\xEC\x83\xE4\xF8\x83\xEC\x64\x53\x8B\xD9\xF3\x0F\x2A\x2A\x2A\x2A\x56\x57\x89\x2A\x2A\x2A\x83\xBB\x2A\x2A\x2A\x2A\x00"
 				"linux"			"@_ZN12CCSGameRules14TerminateRoundEfi"
 				"mac"			"@_ZN12CCSGameRules14TerminateRoundEfi"
 			}
@@ -110,7 +123,7 @@
 			"GetWeaponInfo"
 			{
 				"library"		"server"
-				"windows"		"\x55\x8B\xEC\x83\xEC\x08\x33\xC0\xEB\x2A\x8D\x9B\x00\x00\x00\x00\x39\x0C\xC5\x2A\x2A\x2A\x2A\x74\x2A\x40\x83\xF8\x38\x72\x2A\x33\xC0"
+				"windows"		"\x55\x8B\xEC\x83\xEC\x08\x33\xC0\xEB\x2A\x8D\x9B\x00\x00\x00\x00\x39\x0C\xC5\x2A\x2A\x2A\x2A\x74\x2A\x40\x83\xF8\x2A\x72\x2A\x33\xC0"
 				"linux"			"@_Z13GetWeaponInfo10CSWeaponID"
 				"mac"			"@_Z13GetWeaponInfo10CSWeaponID"
 			}
@@ -118,7 +131,7 @@
 			"CheckWinLimit"
 			{
 				"library"	"server"
-				"windows"	"\x55\x8B\xEC\x83\xE4\xF8\x83\xEC\x64\x53\x56\x57\x8B\xF9\x8B\x0D\x2A\x2A\x2A\x2A\x81\xF9"
+				"windows"	"\x55\x8B\xEC\x83\xE4\xF8\x83\xEC\x2A\x53\x56\x57\x8B\xF9\x8B\x0D\x2A\x2A\x2A\x2A\x81\xF9"
 				"linux"		"@_ZN12CCSGameRules17CheckRestartRoundEv"
 				"mac"		"@_ZN12CCSGameRules17CheckRestartRoundEv"
 			}
@@ -132,24 +145,24 @@
 			"WeaponIDToAlias"
 			{
 				"library"	"server"
-				"windows"	"\x33\xC0\x39\x0C\xC5\x2A\x2A\x2A\x2A\x74\x2A\x40\x83\xF8\x38\x72\x2A\x33\xC0\xC3\x6A\x5F"
+				"windows"	"\x33\xC0\x39\x0C\xC5\x2A\x2A\x2A\x2A\x74\x2A\x40\x83\xF8\x3E\x72\x2A\x33\xC0\xC3\x6A\x5F"
 				"linux"		"@_Z15WeaponIDToAliasi"
 				"mac"		"@_Z15WeaponIDToAliasi"
 			}
 			"SetClanTag"
 			{
 				"library"	"server"
-				"windows"	"\x55\x8B\xEC\x8B\x55\x08\x85\xD2\x74\x2A\x8D\x81\xE4\x1F\x00\x00\x56\x8D"
+				"windows"	"\x55\x8B\xEC\x8B\x55\x08\x85\xD2\x74\x28\x8D\x81\x2A\x2A\x2A\x2A\x56\x8D\x70\x0F\x3B\xC6\x73\x16\x2B\xD0\x8D"
 				"linux"		"@_ZN9CCSPlayer10SetClanTagEPKc"
 				"mac"		"@_ZN9CCSPlayer10SetClanTagEPKc"
 			}
-			//Wild card first 6 bytes since we call it and detour it.
-			"GetAttributeInt"
+			//In windows this is CCSPlayer::GetWeaponPrice NOT CCSWeaponInfo::GetWeaponPrice
+			"GetWeaponPrice"
 			{
 				"library"	"server"
-				"windows"	"\x2A\x2A\x2A\x2A\x2A\x2A\x83\xEC\x1C\x53\x8B\x5D\x0C\xC7\x44\x24\x04\x00\x00\x00\x00\x56\x8B\xF1\x89\x74\x24\x0C\x57\x8B\x7D\x08\x85\xDB\x74\x2A\x80\x7B\x44\x00\x74\x2A\x57\xE8\x2A\x2A\x2A\x2A\x8B\xC8\xE8\x2A\x2A\x2A\x2A\x89\x44\x24\x14\xE8\x2A\x2A\x2A\x2A\x8B\x70\x08\xE8\x2A\x2A\x2A\x2A\x3B\x70\x08\x74\x2A\x57\xE8\x2A\x2A\x2A\x2A\x8B\xC8\xE8\x2A\x2A\x2A\x2A\xEB\x2A\x8B\x44\x24\x14\x85\xC0\x74\x2A\x89\x44\x24\x1C\x8D\x4C\x24\x18\x8D\x44\x24\x0C\xC7\x44\x24\x18\x2A\x2A\x2A\x2A\x89\x44\x24\x20\x8B\x03\x51\x8B\xCB\xC6\x44\x24\x28\x00\xFF\x50\x2A\x80\x7C\x24\x24\x00\x74\x2A\x8B\x44\x24\x0C"
-				"linux"		"@_ZNK16FileWeaponInfo_t15GetAttributeIntEPKcPK13CEconItemView"
-				"mac"		"@_ZNK16FileWeaponInfo_t15GetAttributeIntEPKcPK13CEconItemView"
+				"windows"	"\x55\x8B\xEC\x8B\xD1\x8B\x4D\x08\x83\xF9\x2A\x75\x2A\x83\xBA\x2A\x2A\x2A\x2A\x64\xB8\xE8\x2A\x2A\x2A\x7C"
+				"linux"		"@_ZNK13CCSWeaponInfo14GetWeaponPriceEPK13CEconItemViewif"
+				"mac"		"@_ZNK13CCSWeaponInfo14GetWeaponPriceEPK13CEconItemViewif"
 			}
 			"SetModelFromClass"
 			{
@@ -190,9 +203,9 @@
 		{
 			"CScore"
 			{
-				"windows"	"55"
-				"linux"		"55"
-				"mac"		"55"
+				"windows"	"75"
+				"linux"		"75"
+				"mac"		"75"
 			}
 		}
 	}
@@ -201,16 +214,16 @@
 	{
 		"Keys"
 		{
-			"MVPsBase"		"m_bIsLookingAtWeapon"
+			"MVPsBase"		"m_bIsHoldingLookAtWeapon"
 		}
 		
 		"Offsets"
 		{
 			"MVPs"
 			{
-				"windows"	"16"
-				"linux"		"16"
-				"mac"		"16"
+				"windows"	"15"
+				"linux"		"15"
+				"mac"		"15"
 			}
 		}
 	}

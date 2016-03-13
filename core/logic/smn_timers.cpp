@@ -36,6 +36,7 @@
 #include <IPluginSys.h>
 #include <sh_stack.h>
 #include "DebugReporter.h"
+#include <bridge/include/CoreProvider.h>
 
 using namespace SourceHook;
 
@@ -133,7 +134,10 @@ ResultType TimerNatives::OnTimer(ITimer *pTimer, void *pData)
 {
 	TimerInfo *pInfo = reinterpret_cast<TimerInfo *>(pData);
 	IPluginFunction *pFunc = pInfo->Hook;
-	cell_t res = static_cast<ResultType>(Pl_Continue);
+	if (!pFunc->IsRunnable())
+		return Pl_Continue;
+
+	cell_t res = static_cast<cell_t>(Pl_Continue);
 
 	pFunc->PushCell(pInfo->TimerHandle);
 	pFunc->PushCell(pInfo->UserData);

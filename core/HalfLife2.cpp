@@ -38,9 +38,10 @@
 #include <IGameConfigs.h>
 #include <compat_wrappers.h>
 #include <Logger.h>
-#include "LibrarySys.h"
+#include <amtl/os/am-shared-library.h>
 #include "logic_bridge.h"
 #include <tier0/mem.h>
+#include <bridge/include/ILogger.h>
 
 #if SOURCE_ENGINE == SE_DOTA
 #include <game/shared/protobuf/usermessages.pb.h>
@@ -59,7 +60,8 @@ typedef ICommandLine *(*FakeGetCommandLine)();
 #define VSTDLIB_NAME		"libvstdlib.dylib"
 #elif defined __linux__
 #if SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_TF2 \
-	|| SOURCE_ENGINE == SE_SDK2013 || SOURCE_ENGINE == SE_LEFT4DEAD2 || SOURCE_ENGINE == SE_NUCLEARDAWN
+	|| SOURCE_ENGINE == SE_SDK2013 || SOURCE_ENGINE == SE_LEFT4DEAD2 || SOURCE_ENGINE == SE_NUCLEARDAWN \
+	|| SOURCE_ENGINE == SE_BMS
 #define TIER0_NAME			"libtier0_srv.so"
 #define VSTDLIB_NAME		"libvstdlib_srv.so"
 #elif SOURCE_ENGINE >= SE_LEFT4DEAD
@@ -112,24 +114,10 @@ CHalfLife2::~CHalfLife2()
 CSharedEdictChangeInfo *g_pSharedChangeInfo = NULL;
 #endif
 
-#if !defined METAMOD_PLAPI_VERSION || PLAPI_VERSION < 11
-bool is_original_engine = false;
-#endif
-
 void CHalfLife2::OnSourceModStartup(bool late)
 {
 #if SOURCE_ENGINE != SE_DARKMESSIAH
-
-	/* The Ship currently is the only known game to use an older version of the engine */
-#if defined METAMOD_PLAPI_VERSION || PLAPI_VERSION >= 11
-	if (g_SMAPI->GetSourceEngineBuild() == SOURCE_ENGINE_ORIGINAL)
-#else
-	if (strcasecmp(g_SourceMod.GetGameFolderName(), "ship") == 0)
-#endif
-	{
-		is_original_engine = true;
-	}
-	else if (g_pSharedChangeInfo == NULL)
+	if (g_SMAPI->GetSourceEngineBuild() != SOURCE_ENGINE_ORIGINAL && !g_pSharedChangeInfo)
 	{
 		g_pSharedChangeInfo = engine->GetSharedEdictChangeInfo();
 	}
@@ -153,6 +141,19 @@ void CHalfLife2::OnSourceModAllInitialized_Post()
 
 void CHalfLife2::InitLogicalEntData()
 {
+#if SOURCE_ENGINE == SE_TF2        \
+	|| SOURCE_ENGINE == SE_DODS    \
+	|| SOURCE_ENGINE == SE_HL2DM   \
+	|| SOURCE_ENGINE == SE_CSS     \
+	|| SOURCE_ENGINE == SE_SDK2013 \
+	|| SOURCE_ENGINE == SE_BMS
+
+	if (g_SMAPI->GetServerFactory(false)("VSERVERTOOLS003", nullptr))
+	{
+		g_EntList = servertools->GetEntityList();
+	}
+#endif
+
 	char *addr = NULL;
 
 	/*
@@ -162,21 +163,24 @@ void CHalfLife2::InitLogicalEntData()
 	 * If symbols aren't present (Windows or stripped Linux/Mac), 
 	 * attempt find via LevelShutdown + offset
 	 */
-	if (g_pGameConf->GetMemSig("gEntList", (void **)&addr))
+	if (!g_EntList)
 	{
-#if !defined PLATFORM_WINDOWS
-		if (!addr)
+		if (g_pGameConf->GetMemSig("gEntList", (void **) &addr))
 		{
-			// Key exists so notify if lookup fails, but try other method.
-			g_Logger.LogError("Failed lookup of gEntList directly - Reverting to lookup via LevelShutdown");
-		}
-		else
-		{
-#endif
-			g_EntList = reinterpret_cast<void *>(addr);
 #if !defined PLATFORM_WINDOWS
-		}
+			if (!addr)
+			{
+				// Key exists so notify if lookup fails, but try other method.
+				logger->LogError("Failed lookup of gEntList directly - Reverting to lookup via LevelShutdown");
+			}
+			else
+			{
 #endif
+				g_EntList = reinterpret_cast<void *>(addr);
+#if !defined PLATFORM_WINDOWS
+			}
+#endif
+		}
 	}
 
 	if (!g_EntList)
@@ -186,7 +190,7 @@ void CHalfLife2::InitLogicalEntData()
 			int offset;
 			if (!g_pGameConf->GetOffset("gEntList", &offset))
 			{
-				g_Logger.LogError("Logical Entities not supported by this mod (gEntList) - Reverting to networkable entities only");
+				logger->LogError("Logical Entities not supported by this mod (gEntList) - Reverting to networkable entities only");
 				return;
 			}
 
@@ -198,7 +202,7 @@ void CHalfLife2::InitLogicalEntData()
 	// If we have g_EntList from either of the above methods, make sure we can get the offset from it to EntInfo as well
 	if (g_EntList && !g_pGameConf->GetOffset("EntInfo", &entInfoOffset))
 	{
-		g_Logger.LogError("Logical Entities not supported by this mod (EntInfo) - Reverting to networkable entities only");
+		logger->LogError("Logical Entities not supported by this mod (EntInfo) - Reverting to networkable entities only");
 		g_EntList = NULL;
 		return;
 	}
@@ -211,7 +215,7 @@ void CHalfLife2::InitLogicalEntData()
 	
 	if (!g_EntList && !g_pEntInfoList)
 	{
-		g_Logger.LogError("Failed lookup of gEntList - Reverting to networkable entities only");
+		logger->LogError("Failed lookup of gEntList - Reverting to networkable entities only");
 		return;
 	}
 }
@@ -219,39 +223,38 @@ void CHalfLife2::InitLogicalEntData()
 void CHalfLife2::InitCommandLine()
 {
 	char error[256];
-
-	if (!is_original_engine)
+#if SOURCE_ENGINE != SE_DARKMESSIAH
+	if (g_SMAPI->GetSourceEngineBuild() != SOURCE_ENGINE_ORIGINAL)
 	{
-		ke::AutoPtr<ILibrary> lib(g_LibSys.OpenLibrary(TIER0_NAME, error, sizeof(error)));
-		if (lib == NULL)
-		{
-			g_Logger.LogError("Could not load %s: %s", TIER0_NAME, error);
+		ke::RefPtr<ke::SharedLib> lib = ke::SharedLib::Open(TIER0_NAME, error, sizeof(error));
+		if (!lib) {
+			logger->LogError("Could not load %s: %s", TIER0_NAME, error);
 			return;
 		}
 		
-		m_pGetCommandLine = lib->GetSymbolAddress("CommandLine_Tier0");
+		m_pGetCommandLine = lib->get<decltype(m_pGetCommandLine)>("CommandLine_Tier0");
 
 		/* '_Tier0' dropped on Alien Swarm version */
 		if (m_pGetCommandLine == NULL)
 		{
-			m_pGetCommandLine = lib->GetSymbolAddress("CommandLine");
+			m_pGetCommandLine = lib->get<decltype(m_pGetCommandLine)>("CommandLine");
 		}
 	}
 	else
+#endif
 	{
-		ke::AutoPtr<ILibrary> lib(g_LibSys.OpenLibrary(VSTDLIB_NAME, error, sizeof(error)));
-		if (lib == NULL)
-		{
-			g_Logger.LogError("Could not load %s: %s", VSTDLIB_NAME, error);
+		ke::RefPtr<ke::SharedLib> lib = ke::SharedLib::Open(VSTDLIB_NAME, error, sizeof(error));
+		if (!lib) {
+			logger->LogError("Could not load %s: %s", VSTDLIB_NAME, error);
 			return;
 		}
 
-		m_pGetCommandLine = lib->GetSymbolAddress("CommandLine");
+		m_pGetCommandLine = lib->get<decltype(m_pGetCommandLine)>("CommandLine");
 	}
 	
 	if (m_pGetCommandLine == NULL)
 	{
-		g_Logger.LogError("Could not locate any command line functionality");
+		logger->LogError("Could not locate any command line functionality");
 	}
 }
 
@@ -262,13 +265,6 @@ ICommandLine *CHalfLife2::GetValveCommandLine()
 
 	return ((FakeGetCommandLine)((FakeGetCommandLine *)m_pGetCommandLine))();
 }
-
-#if !defined METAMOD_PLAPI_VERSION || PLAPI_VERSION < 11
-bool CHalfLife2::IsOriginalEngine()
-{
-	return is_original_engine;
-}
-#endif
 
 #if SOURCE_ENGINE != SE_DARKMESSIAH
 IChangeInfoAccessor *CBaseEdict::GetChangeAccessor()
@@ -482,8 +478,8 @@ bool CHalfLife2::TextMsg(int client, int dest, const char *msg)
 		/* Use SayText user message instead */
 		if (chat_saytext != NULL && strcmp(chat_saytext, "yes") == 0)
 		{
-			char buffer[192];
-			UTIL_Format(buffer, sizeof(buffer), "%s\1\n", msg);
+			char buffer[253];
+			ke::SafeSprintf(buffer, sizeof(buffer), "%s\1\n", msg);
 
 #if SOURCE_ENGINE == SE_DOTA
 			CUserMsg_SayText *pMsg;
@@ -769,11 +765,7 @@ bool CHalfLife2::IsLANServer()
 
 bool CHalfLife2::KVLoadFromFile(KeyValues *kv, IBaseFileSystem *filesystem, const char *resourceName, const char *pathID)
 {
-#if defined METAMOD_PLAPI_VERSION || PLAPI_VERSION >= 11
 	if (g_SMAPI->GetSourceEngineBuild() == SOURCE_ENGINE_ORIGINAL)
-#else
-	if (strcasecmp(g_SourceMod.GetGameFolderName(), "ship") == 0)
-#endif
 	{
 		Assert(filesystem);
 #ifdef _MSC_VER
@@ -808,19 +800,19 @@ bool CHalfLife2::KVLoadFromFile(KeyValues *kv, IBaseFileSystem *filesystem, cons
 	}
 }
 
-void CHalfLife2::PushCommandStack(const CCommand *cmd)
+void CHalfLife2::PushCommandStack(const ICommandArgs *cmd)
 {
 	CachedCommandInfo info;
 
 	info.args = cmd;
 #if SOURCE_ENGINE <= SE_DARKMESSIAH
-	strncopy(info.cmd, cmd->Arg(0), sizeof(info.cmd));
+	ke::SafeStrcpy(info.cmd, sizeof(info.cmd), cmd->Arg(0));
 #endif
 
 	m_CommandStack.push(info);
 }
 
-const CCommand *CHalfLife2::PeekCommandStack()
+const ICommandArgs *CHalfLife2::PeekCommandStack()
 {
 	if (m_CommandStack.empty())
 	{
@@ -858,7 +850,7 @@ void CHalfLife2::AddDelayedKick(int client, int userid, const char *msg)
 
 	kick.client = client;
 	kick.userid = userid;
-	UTIL_Format(kick.buffer, sizeof(kick.buffer), "%s", msg);
+	ke::SafeSprintf(kick.buffer, sizeof(kick.buffer), "%s", msg);
 
 	m_DelayedKicks.push(kick);
 }
@@ -1170,6 +1162,12 @@ const char *CHalfLife2::GetEntityClassname(CBaseEntity *pEntity)
 	if (offset == -1)
 	{
 		CBaseEntity *pGetterEnt = ReferenceToEntity(0);
+		if (pGetterEnt == NULL)
+		{
+			// If we don't have a world entity yet, we'll have to rely on the given entity
+			pGetterEnt = pEntity;
+		}
+
 		datamap_t *pMap = GetDataMap(pGetterEnt);
 		
 		sm_datatable_info_t info;
@@ -1184,46 +1182,149 @@ const char *CHalfLife2::GetEntityClassname(CBaseEntity *pEntity)
 	return *(const char **)(((unsigned char *)pEntity) + offset);
 }
 
-#if SOURCE_ENGINE >= SE_LEFT4DEAD
-static bool ResolveFuzzyMapName(const char *fuzzyName, char *outFullname, int size)
+SMFindMapResult CHalfLife2::FindMap(char *pMapName, size_t nMapNameMax)
 {
+	return this->FindMap(pMapName, pMapName, nMapNameMax);
+}
+
+SMFindMapResult CHalfLife2::FindMap(const char *pMapName, char *pFoundMap, size_t nMapNameMax)
+{
+	ke::SafeStrcpy(pFoundMap, nMapNameMax, pMapName);
+
+#if SOURCE_ENGINE >= SE_LEFT4DEAD
+	static char mapNameTmp[PLATFORM_MAX_PATH];
+	g_SourceMod.Format(mapNameTmp, sizeof(mapNameTmp), "maps%c%s.bsp", PLATFORM_SEP_CHAR, pMapName);
+	if (filesystem->FileExists(mapNameTmp, "GAME"))
+	{
+		// If this is already an exact match, don't attempt to autocomplete it further (de_dust -> de_dust2).
+		// ... but still check that map file is actually valid.
+		// We check FileExists first to avoid console message about IsMapValid with invalid map.
+		return engine->IsMapValid(pMapName) == 0 ? SMFindMapResult::NotFound : SMFindMapResult::Found;
+	}
+
 	static ConCommand *pHelperCmd = g_pCVar->FindCommand("changelevel");
+	
+	// This shouldn't happen.
 	if (!pHelperCmd || !pHelperCmd->CanAutoComplete())
-		return false;
+	{
+		return engine->IsMapValid(pMapName) == 0 ? SMFindMapResult::NotFound : SMFindMapResult::Found;
+	}
 
 	static size_t helperCmdLen = strlen(pHelperCmd->GetName());
 
 	CUtlVector<CUtlString> results;
-	pHelperCmd->AutoCompleteSuggest(fuzzyName, results);
+	pHelperCmd->AutoCompleteSuggest(pMapName, results);
 	if (results.Count() == 0)
-		return false;
+		return SMFindMapResult::NotFound;
 
 	// Results come back as you'd see in autocomplete. (ie. "changelevel fullmapnamehere"),
 	// so skip ahead to start of map path/name
 
 	// Like the engine, we're only going to deal with the first match.
 
-	strncopy(outFullname, &results[0][helperCmdLen + 1], size);
+	bool bExactMatch = Q_strcmp(pMapName, &results[0][helperCmdLen + 1]) == 0;
+	if (bExactMatch)
+	{
+		return SMFindMapResult::Found;
+	}
+	else
+	{
+		ke::SafeStrcpy(pFoundMap, nMapNameMax, &results[0][helperCmdLen + 1]);
+		return SMFindMapResult::FuzzyMatch;
+	}
+
+#elif SOURCE_ENGINE == SE_TF2 || SOURCE_ENGINE == SE_BMS
+	static char szTemp[PLATFORM_MAX_PATH];
+	if (pFoundMap == NULL)
+	{
+		ke::SafeStrcpy(szTemp, SM_ARRAYSIZE(szTemp), pMapName);
+		pFoundMap = szTemp;
+		nMapNameMax = 0;
+	}
+
+	return static_cast<SMFindMapResult>(engine->FindMap(pFoundMap, static_cast<int>(nMapNameMax)));
+#elif SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_SDK2013
+	static IVEngineServer *engine21 = (IVEngineServer *)(g_SMAPI->GetEngineFactory()("VEngineServer021", nullptr));
+	return engine21->IsMapValid(pMapName) == 0 ? SMFindMapResult::NotFound : SMFindMapResult::Found;
+#else
+	return engine->IsMapValid(pMapName) == 0 ? SMFindMapResult::NotFound : SMFindMapResult::Found;
+#endif
+}
+
+bool CHalfLife2::GetMapDisplayName(const char *pMapName, char *pDisplayname, size_t nMapNameMax)
+{
+	SMFindMapResult result = FindMap(pMapName, pDisplayname, nMapNameMax);
+
+	if (result == SMFindMapResult::NotFound)
+	{
+		return false;
+	}
+
+#if SOURCE_ENGINE == SE_CSGO
+	// In CSGO, the path separator is used in workshop maps.
+	char workshop[10];
+	ke::SafeSprintf(workshop, SM_ARRAYSIZE(workshop), "%s%c", "workshop", PLATFORM_SEP_CHAR);
+
+	char *lastSlashPos;
+	// In CSGO, workshop maps show up as workshop/123456789/mapname or workshop\123456789\mapname depending on OS
+	if (strncmp(pDisplayname, workshop, 9) == 0 && (lastSlashPos = strrchr(pDisplayname, PLATFORM_SEP_CHAR)) != NULL)
+	{
+		ke::SafeStrcpy(pDisplayname, nMapNameMax, &lastSlashPos[1]);
+		return true;
+	}
+#elif SOURCE_ENGINE == SE_TF2 || SOURCE_ENGINE == SE_BMS
+	char *ugcPos;
+	// In TF2 and BMS, workshop maps show up as workshop/mapname.ugc123456789 regardless of OS
+	if (strncmp(pDisplayname, "workshop/", 9) == 0 && (ugcPos = strstr(pDisplayname, ".ugc")) != NULL)
+	{
+		// Overwrite the . with a null and SafeStrcpy will handle the rest
+		ugcPos[0] = '\0';
+		ke::SafeStrcpy(pDisplayname, nMapNameMax, &pDisplayname[9]);
+		return true;
+	}
+#endif
 
 	return true;
 }
-#endif
 
 bool CHalfLife2::IsMapValid(const char *map)
 {
 	if (!map || !map[0])
 		return false;
-
-	bool ret = engine->IsMapValid(map);
-#if SOURCE_ENGINE >= SE_LEFT4DEAD
-	if (!ret)
-	{
-		static char szFuzzyName[PLATFORM_MAX_PATH];
-		if (ResolveFuzzyMapName(map, szFuzzyName, sizeof(szFuzzyName)))
-		{
-			ret = engine->IsMapValid(szFuzzyName);
-		}
-	}
-#endif
-	return ret;
+	
+	return FindMap(map) != SMFindMapResult::NotFound;
 }
+
+// TODO: Add ep1 support for this. (No IServerTools available there)
+#if SOURCE_ENGINE >= SE_ORANGEBOX
+string_t CHalfLife2::AllocPooledString(const char *pszValue)
+{
+	// This is admittedly a giant hack, but it's a relatively safe method for
+	// inserting a string into the game's string pool that isn't likely to break.
+	//
+	// We find the first valid ent (should always be worldspawn), save off it's
+	// current targetname string_t, set it to our string to insert via SetKeyValue,
+	// read back the new targetname value, restore the old value, and return the new one.
+
+	CBaseEntity *pEntity = ((IServerUnknown *) servertools->FirstEntity())->GetBaseEntity();
+	auto *pDataMap = GetDataMap(pEntity);
+	assert(pDataMap);
+
+	static int offset = -1;
+	if (offset == -1)
+	{
+		sm_datatable_info_t info;
+		bool found = FindDataMapInfo(pDataMap, "m_iName", &info);
+		assert(found);
+		offset = info.actual_offset;
+	}
+
+	string_t *pProp = (string_t *) ((intp) pEntity + offset);
+	string_t backup = *pProp;
+	servertools->SetKeyValue(pEntity, "targetname", pszValue);
+	string_t newString = *pProp;
+	*pProp = backup;
+
+	return newString;
+}
+#endif

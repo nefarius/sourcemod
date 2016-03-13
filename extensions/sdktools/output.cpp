@@ -77,13 +77,25 @@ bool EntityOutputManager::IsEnabled()
 #ifdef PLATFORM_WINDOWS
 DETOUR_DECL_MEMBER8(FireOutput, void, int, what, int, the, int, hell, int, msvc, void *, variant_t, CBaseEntity *, pActivator, CBaseEntity *, pCaller, float, fDelay)
 {
-	g_OutputManager.FireEventDetour((void *)this, pActivator, pCaller, fDelay);
+	bool fireOutput = g_OutputManager.FireEventDetour((void *)this, pActivator, pCaller, fDelay);
+
+	if (!fireOutput)
+	{
+		return;
+	}
+
 	DETOUR_MEMBER_CALL(FireOutput)(what, the, hell, msvc, variant_t, pActivator, pCaller, fDelay);
 }
 #else
 DETOUR_DECL_MEMBER4(FireOutput, void, void *, variant_t, CBaseEntity *, pActivator, CBaseEntity *, pCaller, float, fDelay)
 {
-	g_OutputManager.FireEventDetour((void *)this, pActivator, pCaller, fDelay);
+	bool fireOutput = g_OutputManager.FireEventDetour((void *)this, pActivator, pCaller, fDelay);
+
+	if (!fireOutput)
+	{
+		return;
+	}
+
 	DETOUR_MEMBER_CALL(FireOutput)(variant_t, pActivator, pCaller, fDelay);
 }
 #endif
@@ -92,16 +104,19 @@ bool EntityOutputManager::CreateFireEventDetour()
 {
 	fireOutputDetour = DETOUR_CREATE_MEMBER(FireOutput, "FireOutput");
 
-	if (fireOutputDetour) return true;
+	if (fireOutputDetour)
+	{
+		return true;
+	}
 
 	return false;
 }
 
-void EntityOutputManager::FireEventDetour(void *pOutput, CBaseEntity *pActivator, CBaseEntity *pCaller, float fDelay)
+bool EntityOutputManager::FireEventDetour(void *pOutput, CBaseEntity *pActivator, CBaseEntity *pCaller, float fDelay)
 {
 	if (!pCaller)
 	{
-		return;
+		return true;
 	}
 
 	char sOutput[20];
@@ -115,19 +130,23 @@ void EntityOutputManager::FireEventDetour(void *pOutput, CBaseEntity *pActivator
 	// Fast lookup failed - check the slow way for hooks that haven't fired yet
 	if ((fastLookup = EntityOutputs->Retrieve(sOutput, (void **)&pOutputName)) == false)
 	{
-		const char *classname = GetEntityClassname(pCaller);
-		const char *outputname = FindOutputName(pOutput, pCaller);
-		
+		const char *classname = gamehelpers->GetEntityClassname(pCaller);
+		if (!classname)
+		{
+			return true;
+		}
+
+		const char *outputname = FindOutputName(pOutput, pCaller);		
 		if (!outputname)
 		{
-			return;
+			return true;
 		}
 
 		pOutputName = FindOutputPointer(classname, outputname, false);
 
 		if (!pOutputName)
 		{
-			return;
+			return true;
 		}
 	}
 
@@ -144,6 +163,9 @@ void EntityOutputManager::FireEventDetour(void *pOutput, CBaseEntity *pActivator
 		omg_hooks *hook;
 
 		_iter = pOutputName->hooks.begin();
+
+		// by default we'll call the game's output func, unless a plugin overrides it
+		bool fireOriginal = true;
 
 		while (_iter != pOutputName->hooks.end())
 		{
@@ -166,6 +188,8 @@ void EntityOutputManager::FireEventDetour(void *pOutput, CBaseEntity *pActivator
 
 			if (hook->entity_ref == -1 || hook->entity_ref == ref) // Global classname hook
 			{
+				cell_t result;
+
 				//fire the forward to hook->pf
 				hook->pf->PushString(pOutputName->Name);
 				hook->pf->PushCell(gamehelpers->ReferenceToBCompatRef(ref));
@@ -173,7 +197,13 @@ void EntityOutputManager::FireEventDetour(void *pOutput, CBaseEntity *pActivator
 
 				//hook->pf->PushCell(handle);
 				hook->pf->PushFloat(fDelay);
-				hook->pf->Execute(NULL);
+				hook->pf->Execute(&result);
+
+				if (result > Pl_Continue)
+				{
+					// a hook doesn't want the output to be called
+					fireOriginal = false;
+				}
 
 				if ((hook->entity_ref != -1) && hook->only_once)
 				{
@@ -194,7 +224,11 @@ void EntityOutputManager::FireEventDetour(void *pOutput, CBaseEntity *pActivator
 			hook->in_use = false;
 			_iter++;
 		}
+
+		return fireOriginal;
 	}
+
+	return true;
 }
 
 omg_hooks *EntityOutputManager::NewHook()
@@ -348,22 +382,4 @@ const char *EntityOutputManager::FindOutputName(void *pOutput, CBaseEntity *pCal
 	}
 
 	return NULL;
-}
-
-const char *EntityOutputManager::GetEntityClassname(CBaseEntity *pEntity)
-{
-	static int offset = -1;
-	if (offset == -1)
-	{
-		datamap_t *pMap = gamehelpers->GetDataMap(pEntity);
-		sm_datatable_info_t info;
-		if (!gamehelpers->FindDataMapInfo(pMap, "m_iClassname", &info))
-		{
-			return NULL;
-		}
-		
-		offset = info.actual_offset;
-	}
-
-	return *(const char **)(((unsigned char *)pEntity) + offset);
 }

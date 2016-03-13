@@ -95,7 +95,7 @@ public:
 	void Shutdown();
 	bool IsEnabled();
 
-	void FireEventDetour(void *pOutput, CBaseEntity *pActivator, CBaseEntity *pCaller, float fDelay);
+	bool FireEventDetour(void *pOutput, CBaseEntity *pActivator, CBaseEntity *pCaller, float fDelay);
 
 	void OnPluginDestroyed(IPlugin *plugin);
 
@@ -107,8 +107,6 @@ public:
 
 	void OnHookAdded();
 	void OnHookRemoved();
-
-	const char *GetEntityClassname(CBaseEntity *pEntity);
 
 private:
 	bool enabled;

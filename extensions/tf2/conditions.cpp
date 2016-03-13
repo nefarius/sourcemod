@@ -2,7 +2,7 @@
  * vim: set ts=4 :
  * =============================================================================
  * SourceMod Team Fortress 2 Extension
- * Copyright (C) 2004-2011 AlliedModders LLC.  All rights reserved.
+ * Copyright (C) 2004-2015 AlliedModders LLC.  All rights reserved.
  * =============================================================================
  *
  * This program is free software; you can redistribute it and/or modify it under
@@ -31,181 +31,165 @@
 
 #include "extension.h"
 #include "conditions.h"
-#include "util.h"
-
-#include <iplayerinfo.h>
-
-typedef struct condflags_s {
-	uint64_t upper;
-	uint64_t lower;
-} condflags_t;
-condflags_t condflags_empty = { 0, 0 };
-
-condflags_t g_PlayerConds[SM_MAXPLAYERS+1];
 
 IForward *g_addCondForward = NULL;
 IForward *g_removeCondForward = NULL;
 
-int playerCondOffset = -1;
-int playerCondExOffset = -1;
-int playerCondEx2Offset = -1;
-int conditionBitsOffset = -1;
-
-bool g_bIgnoreRemove;
-
-#define MAX_CONDS (sizeof(uint64_t) * 8)
-
-inline condflags_t GetPlayerConds(CBaseEntity *pPlayer)
+struct CondChangeData_t
 {
-	condflags_t result;
-	uint32_t playerCond    =  *(uint32_t *)((intptr_t)pPlayer + playerCondOffset);
-	uint32_t condBits      =  *(uint32_t *)((intptr_t)pPlayer + conditionBitsOffset);
-	uint32_t playerCondEx  =  *(uint32_t *)((intptr_t)pPlayer + playerCondExOffset);
-	uint32_t playerCondEx2 =  *(uint32_t *)((intptr_t)pPlayer + playerCondEx2Offset);
+	CBaseHandle hPlayer;
+	PlayerConditionsMgr::CondVar var;
+	int newConds;
+};
 
-	uint64_t playerCondExAdj = playerCondEx;
-	playerCondExAdj <<= 32;
-
-	result.lower = playerCond|condBits|playerCondExAdj;
-	result.upper = playerCondEx2;
-	return result;
+static void HandleCondChange(void *pData)
+{
+	auto *pCondData = reinterpret_cast<CondChangeData_t *>(pData);
+	g_CondMgr.ProcessCondChange(pCondData);
+	delete pCondData;
 }
 
-void Conditions_OnGameFrame(bool simulating)
+void PlayerConditionsMgr::ProcessCondChange(CondChangeData_t *pCondData)
 {
-	if (!simulating)
+	auto *pEdict = gamehelpers->GetHandleEntity(pCondData->hPlayer);
+	auto *pPlayer = playerhelpers->GetGamePlayer(pEdict);
+	if (!pPlayer || !pPlayer->IsInGame())
 		return;
 
-	condflags_t oldconds;
-	condflags_t newconds;
-	
-	condflags_t addedconds;
-	condflags_t removedconds;
+	int client = pCondData->hPlayer.GetEntryIndex();
+	int newConds = 0;
+	int prevConds = 0;
+	CondVar var = pCondData->var;
 
-	int maxClients = gpGlobals->maxClients;
-	for (int i = 1; i <= maxClients; i++)
+	if (var == m_nPlayerCond)
 	{
-		IGamePlayer *pPlayer = playerhelpers->GetGamePlayer(i);
-		if (!pPlayer || !pPlayer->IsInGame())
-			continue;
+		prevConds = m_OldConds[client][_condition_bits] | m_OldConds[client][var];
+		newConds = m_OldConds[client][_condition_bits] | pCondData->newConds;
+	}
+	else if (var == _condition_bits)
+	{
+		prevConds = m_OldConds[client][m_nPlayerCond] | m_OldConds[client][var];
+		newConds = m_OldConds[client][m_nPlayerCond] | pCondData->newConds;
+	}
+	else
+	{
+		prevConds = m_OldConds[client][var];
+		newConds = pCondData->newConds;
+	}
 
-		IPlayerInfo *info = pPlayer->GetPlayerInfo();
-		if (info->IsHLTV() || info->IsReplay())
-			continue;
+	if (prevConds != newConds)
+	{
+		int changedConds = newConds ^ prevConds;
+		int addedConds = changedConds & newConds;
+		int removedConds = changedConds & prevConds;
+		m_OldConds[client][var] = newConds;
 
-		CBaseEntity *pEntity = gamehelpers->ReferenceToEntity(i);
-		oldconds = g_PlayerConds[i];
-		newconds = GetPlayerConds(pEntity);
-
-		if (oldconds.lower == newconds.lower && oldconds.upper == newconds.upper)
-			continue;
-
-		addedconds.lower = newconds.lower &~ oldconds.lower;
-		removedconds.lower = oldconds.lower &~ newconds.lower;
-		addedconds.upper = newconds.upper &~ oldconds.upper;
-		removedconds.upper = oldconds.upper &~ newconds.upper;
-
-		uint64_t j;
-		uint64_t bit;
-
-		uint64_t maxbit = MAX(addedconds.lower, addedconds.upper);
-		for (j = 0; j < MAX_CONDS && (bit = ((uint64_t)1 << j)) <= maxbit; j++)
+		for (int i = 0; i < 32; i++)
 		{
-			if ((addedconds.lower & bit) == bit)
+			if (addedConds & (1 << i))
 			{
-				g_addCondForward->PushCell(i);
-				g_addCondForward->PushCell(j & 0xFFFFFFFF);
-				g_addCondForward->Execute(NULL, NULL);
+				g_addCondForward->PushCell(client);
+				g_addCondForward->PushCell(i + m_CondOffset[var]);
+				g_addCondForward->Execute(NULL);
 			}
-			if ((addedconds.upper & bit) == bit)
+			else if (removedConds & (1 << i))
 			{
-				g_addCondForward->PushCell(i);
-				g_addCondForward->PushCell((j+64) & 0xFFFFFFFF);
-				g_addCondForward->Execute(NULL, NULL);
+				g_removeCondForward->PushCell(client);
+				g_removeCondForward->PushCell(i + m_CondOffset[var]);
+				g_removeCondForward->Execute(NULL);
 			}
 		}
-
-		maxbit = MAX(removedconds.lower, removedconds.upper);
-		for (j = 0; j < MAX_CONDS && (bit = ((uint64_t)1 << j)) <= maxbit; j++)
-		{
-			if ((removedconds.lower & bit) == bit)
-			{
-				g_removeCondForward->PushCell(i);
-				g_removeCondForward->PushCell(j & 0xFFFFFFFF);
-				g_removeCondForward->Execute(NULL, NULL);
-			}
-			if ((removedconds.upper & bit) == bit)
-			{
-				g_removeCondForward->PushCell(i);
-				g_removeCondForward->PushCell((j+64) & 0xFFFFFFFF);
-				g_removeCondForward->Execute(NULL, NULL);
-			}
-		}
-
-		g_PlayerConds[i] = newconds;
 	}
 }
 
-bool InitialiseConditionChecks()
+template<PlayerConditionsMgr::CondVar CondVar>
+static void OnPlayerCondChange(const SendProp *pProp, const void *pStructBase, const void *pData, DVariant *pOut, int iElement, int objectID)
 {
-	sm_sendprop_info_t prop;
-	if (!gamehelpers->FindSendPropInfo("CTFPlayer", "m_nPlayerCond", &prop))
+	g_CondMgr.OnConVarChange(CondVar, pProp, pStructBase, pData, pOut, iElement, objectID);
+}
+
+void PlayerConditionsMgr::OnConVarChange(CondVar var, const SendProp *pProp, const void *pStructBase, const void *pData, DVariant *pOut, int iElement, int objectID)
+{
+	auto pCondData = new CondChangeData_t;
+	pCondData->hPlayer = ((IHandleEntity *)((intp)pData - GetPropOffs(var)))->GetRefEHandle();
+	pCondData->var = var;
+	pCondData->newConds = *(int *)pData;
+
+	g_pSM->AddFrameAction(&HandleCondChange, pCondData);
+
+	if (m_BackupProxyFns[var] != nullptr)
+		m_BackupProxyFns[var](pProp, pStructBase, pData, pOut, iElement, objectID);
+}
+
+template <PlayerConditionsMgr::CondVar var>
+bool PlayerConditionsMgr::SetupProp(const char *varname)
+{
+	if (!gamehelpers->FindSendPropInfo("CTFPlayer", varname, &m_CondVarProps[var]))
 	{
-		g_pSM->LogError(myself, "Failed to find m_nPlayerCond prop offset");
+		g_pSM->LogError(myself, "Failed to find %s prop offset", varname);
 		return false;
 	}
-	
-	playerCondOffset = prop.actual_offset;
-	
-	if (!gamehelpers->FindSendPropInfo("CTFPlayer", "_condition_bits", &prop))
-	{
-		g_pSM->LogError(myself, "Failed to find _condition_bits prop offset");
-		return false;
-	}
 
-	conditionBitsOffset = prop.actual_offset;
-
-	if (!gamehelpers->FindSendPropInfo("CTFPlayer", "m_nPlayerCondEx", &prop))
-	{
-		g_pSM->LogError(myself, "Failed to find m_nPlayerCondEx prop offset");
-		return false;
-	}
-	
-	playerCondExOffset = prop.actual_offset;
-
-	if (!gamehelpers->FindSendPropInfo("CTFPlayer", "m_nPlayerCondEx2", &prop))
-	{
-		g_pSM->LogError(myself, "Failed to find m_nPlayerCondEx2 prop offset");
-		return false;
-	}
-	
-	playerCondEx2Offset = prop.actual_offset;
-
-	if (playerCondOffset == -1 || playerCondExOffset == -1 || conditionBitsOffset == -1 || playerCondEx2Offset == -1)
-		return false;
-	
-	int maxClients = gpGlobals->maxClients;
-	for (int i = 1; i <= maxClients; i++)
-	{
-		IGamePlayer *pPlayer = playerhelpers->GetGamePlayer(i);
-		if (!pPlayer || !pPlayer->IsInGame())
-			continue;
-
-		g_PlayerConds[i] = GetPlayerConds(gamehelpers->ReferenceToEntity(i));
-	}
-
-	g_pSM->AddGameFrameHook(Conditions_OnGameFrame);
+	m_BackupProxyFns[var] = GetProp(var)->GetProxyFn();
+	GetProp(var)->SetProxyFn(OnPlayerCondChange<var>);
 
 	return true;
 }
 
-void Conditions_OnClientPutInServer(int client)
+PlayerConditionsMgr::PlayerConditionsMgr()
 {
-	g_PlayerConds[client] = condflags_empty;
+	m_CondOffset[m_nPlayerCond] = 0;
+	m_CondOffset[_condition_bits] = 0;
+	m_CondOffset[m_nPlayerCondEx] = 32;
+	m_CondOffset[m_nPlayerCondEx2] = 64;
+	m_CondOffset[m_nPlayerCondEx3] = 96;
 }
 
-void RemoveConditionChecks()
+bool PlayerConditionsMgr::Init()
 {
-	g_pSM->RemoveGameFrameHook(Conditions_OnGameFrame);
+	memset(m_BackupProxyFns, 0, sizeof(m_BackupProxyFns));
+
+	bool bFoundProps = SetupProp<m_nPlayerCond>("m_nPlayerCond")
+		&& SetupProp<_condition_bits>("_condition_bits")
+		&& SetupProp<m_nPlayerCondEx>("m_nPlayerCondEx")
+		&& SetupProp<m_nPlayerCondEx2>("m_nPlayerCondEx2")
+		&& SetupProp<m_nPlayerCondEx3>("m_nPlayerCondEx3");
+
+	if (!bFoundProps)
+		return false;
+
+	playerhelpers->AddClientListener(this);
+
+	int maxClients = gpGlobals->maxClients;
+	for (int i = 1; i <= maxClients; i++)
+	{
+		IGamePlayer *pPlayer = playerhelpers->GetGamePlayer(i);
+		if (!pPlayer || !pPlayer->IsInGame())
+			continue;
+
+		CBaseEntity *pEntity = gamehelpers->ReferenceToEntity(i);
+		for (size_t j = 0; j < CondVar_Count; ++j)
+		{
+			m_OldConds[i][j] = *(int *)((intp) pEntity + GetPropOffs((CondVar)j));
+		}
+	}
+
+	return true;
 }
 
+void PlayerConditionsMgr::Shutdown()
+{
+	for (size_t i = 0; i < CondVar_Count; ++i)
+	{
+		GetProp((CondVar)i)->SetProxyFn(m_BackupProxyFns[i]);
+	}
+
+	playerhelpers->RemoveClientListener(this);
+}
+
+void PlayerConditionsMgr::OnClientPutInServer(int client)
+{
+	memset(&m_OldConds[client], 0, sizeof(m_OldConds[0]));
+}
+
+PlayerConditionsMgr g_CondMgr;

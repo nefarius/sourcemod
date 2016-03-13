@@ -2,7 +2,7 @@
  * vim: set ts=4 :
  * =============================================================================
  * SourceMod
- * Copyright (C) 2004-2008 AlliedModders LLC.  All rights reserved.
+ * Copyright (C) 2004-2015 AlliedModders LLC.  All rights reserved.
  * =============================================================================
  *
  * This program is free software; you can redistribute it and/or modify it under
@@ -29,6 +29,8 @@
  * Version: $Id$
  */
 
+#include "smn_keyvalues.h"
+
 #include "sourcemod.h"
 #include "sourcemm_api.h"
 #include "sm_stringutil.h"
@@ -38,12 +40,6 @@
 #include "logic_bridge.h"
 
 HandleType_t g_KeyValueType;
-
-struct KeyValueStack 
-{
-	KeyValues *pBase;
-	CStack<KeyValues *> pCurRoot;
-};
 
 class KeyValueNatives : 
 	public SMGlobalClass,
@@ -62,7 +58,11 @@ public:
 	void OnHandleDestroy(HandleType_t type, void *object)
 	{
 		KeyValueStack *pStk = reinterpret_cast<KeyValueStack *>(object);
-		pStk->pBase->deleteThis();
+		if (pStk->m_bDeleteOnDestroy)
+		{
+			pStk->pBase->deleteThis();
+		}
+
 		delete pStk;
 	}
 	int CalcKVSizeR(KeyValues *pv)
@@ -266,7 +266,7 @@ static cell_t smn_KvSetVector(IPluginContext *pCtx, const cell_t *params)
 	pCtx->LocalToStringNULL(params[2], &key);
 	pCtx->LocalToPhysAddr(params[3], &vector);
 
-	UTIL_Format(buffer, sizeof(buffer), "%f %f %f", sp_ctof(vector[0]), sp_ctof(vector[1]), sp_ctof(vector[2]));
+	ke::SafeSprintf(buffer, sizeof(buffer), "%f %f %f", sp_ctof(vector[0]), sp_ctof(vector[1]), sp_ctof(vector[2]));
 
 	pStk->pCurRoot.front()->SetString(key, buffer);
 
@@ -437,7 +437,7 @@ static cell_t smn_KvGetVector(IPluginContext *pCtx, const cell_t *params)
 	pCtx->LocalToPhysAddr(params[3], &outvector);
 	pCtx->LocalToPhysAddr(params[4], &defvector);
 
-	UTIL_Format(buffer, sizeof(buffer), "%f %f %f", sp_ctof(defvector[0]), sp_ctof(defvector[1]), sp_ctof(defvector[2]));
+	ke::SafeSprintf(buffer, sizeof(buffer), "%f %f %f", sp_ctof(defvector[0]), sp_ctof(defvector[1]), sp_ctof(defvector[2]));
 
 	value = pStk->pCurRoot.front()->GetString(key, buffer);
 
@@ -797,6 +797,32 @@ static cell_t smn_FileToKeyValues(IPluginContext *pCtx, const cell_t *params)
 	return g_HL2.KVLoadFromFile(kv, basefilesystem, path);
 }
 
+static cell_t smn_StringToKeyValues(IPluginContext *pCtx, const cell_t *params)
+{
+	Handle_t hndl = static_cast<Handle_t>(params[1]);
+	HandleError herr;
+	HandleSecurity sec;
+	KeyValueStack *pStk;
+	KeyValues *kv;
+
+	sec.pOwner = NULL;
+	sec.pIdentity = g_pCoreIdent;
+
+	if ((herr=handlesys->ReadHandle(hndl, g_KeyValueType, &sec, (void **)&pStk))
+		!= HandleError_None)
+	{
+		return pCtx->ThrowNativeError("Invalid key value handle %x (error %d)", hndl, herr);
+	}
+
+	char *buffer;
+	char *resourceName;
+	pCtx->LocalToString(params[2], &buffer);
+	pCtx->LocalToString(params[3], &resourceName);
+
+	kv = pStk->pCurRoot.front();
+	return kv->LoadFromBuffer(resourceName, buffer);
+}
+
 static cell_t smn_KvSetEscapeSequences(IPluginContext *pCtx, const cell_t *params)
 {
 	Handle_t hndl = static_cast<Handle_t>(params[1]);
@@ -1075,6 +1101,18 @@ static cell_t smn_KvGetSectionSymbol(IPluginContext *pCtx, const cell_t *params)
 	return 1;
 }
 
+static cell_t KeyValues_Import(IPluginContext *pContext, const cell_t *params)
+{
+	// This version takes (dest, src). The original is (src, dest).
+	cell_t new_params[3] = {
+		2,
+		params[2],
+		params[1],
+	};
+
+	return smn_CopySubkeys(pContext, new_params);
+}
+
 static KeyValueNatives s_KeyValueNatives;
 
 REGISTER_NATIVES(keyvaluenatives)
@@ -1101,6 +1139,7 @@ REGISTER_NATIVES(keyvaluenatives)
 	{"KvGetDataType",			smn_KvGetDataType},
 	{"KeyValuesToFile",			smn_KeyValuesToFile},
 	{"FileToKeyValues",			smn_FileToKeyValues},
+	{"StringToKeyValues",		smn_StringToKeyValues},
 	{"KvSetEscapeSequences",	smn_KvSetEscapeSequences},
 	{"KvDeleteThis",			smn_KvDeleteThis},
 	{"KvDeleteKey",				smn_KvDeleteKey},
@@ -1112,5 +1151,42 @@ REGISTER_NATIVES(keyvaluenatives)
 	{"KvGetSectionSymbol",		smn_KvGetSectionSymbol},
 	{"KvGetVector",				smn_KvGetVector},
 	{"KvSetVector",				smn_KvSetVector},
+
+	// Transitional syntax support.
+	{"KeyValues.KeyValues",				smn_CreateKeyValues},
+	{"KeyValues.SetString",				smn_KvSetString},
+	{"KeyValues.SetNum",				smn_KvSetNum},
+	{"KeyValues.SetUInt64",				smn_KvSetUInt64},
+	{"KeyValues.SetFloat",				smn_KvSetFloat},
+	{"KeyValues.SetColor",				smn_KvSetColor},
+	{"KeyValues.GetString",				smn_KvGetString},
+	{"KeyValues.GetNum",				smn_KvGetNum},
+	{"KeyValues.GetFloat",				smn_KvGetFloat},
+	{"KeyValues.GetColor",				smn_KvGetColor},
+	{"KeyValues.GetUInt64",				smn_KvGetUInt64},
+	{"KeyValues.JumpToKey",				smn_KvJumpToKey},
+	{"KeyValues.JumpToKeySymbol",		smn_KvJumpToKeySymbol},
+	{"KeyValues.GotoNextKey",			smn_KvGotoNextKey},
+	{"KeyValues.GotoFirstSubKey",		smn_KvGotoFirstSubKey},
+	{"KeyValues.GoBack",				smn_KvGoBack},
+	{"KeyValues.Rewind",				smn_KvRewind},
+	{"KeyValues.GetSectionName",		smn_KvGetSectionName},
+	{"KeyValues.SetSectionName",		smn_KvSetSectionName},
+	{"KeyValues.GetDataType",			smn_KvGetDataType},
+	{"KeyValues.SetEscapeSequences",	smn_KvSetEscapeSequences},
+	{"KeyValues.DeleteThis",			smn_KvDeleteThis},
+	{"KeyValues.DeleteKey",				smn_KvDeleteKey},
+	{"KeyValues.NodesInStack",			smn_KvNodesInStack},
+	{"KeyValues.SavePosition",			smn_KvSavePosition},
+	{"KeyValues.FindKeyById",			smn_FindKeyById},
+	{"KeyValues.GetNameSymbol",			smn_GetNameSymbol},
+	{"KeyValues.GetSectionSymbol",		smn_KvGetSectionSymbol},
+	{"KeyValues.GetVector",				smn_KvGetVector},
+	{"KeyValues.SetVector",				smn_KvSetVector},
+	{"KeyValues.Import",				KeyValues_Import},
+	{"KeyValues.ImportFromFile",		smn_FileToKeyValues},
+	{"KeyValues.ImportFromString",		smn_StringToKeyValues},
+	{"KeyValues.ExportToFile",			smn_KeyValuesToFile},
+
 	{NULL,						NULL}
 };

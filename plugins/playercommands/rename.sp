@@ -37,22 +37,8 @@ PerformRename(client, target)
 {
 	LogAction(client, target, "\"%L\" renamed \"%L\" to \"%s\")", client, target, g_NewName[target]);
 
-	/* Used on OB / L4D engine */
-	if (g_ModVersion != Engine_SourceSDK2006)
-	{
-		SetClientInfo(target, "name", g_NewName[target]);
-	}
-	else /* Used on CSS and EP1 / older engine */
-	{
-		if (!IsPlayerAlive(target)) /* Lets tell them about the player renamed on the next round since they're dead. */
-		{
-			decl String:m_TargetName[MAX_NAME_LENGTH];
+	SetClientName(target, g_NewName[target]);
 
-			GetClientName(target, m_TargetName, sizeof(m_TargetName));
-			ReplyToCommand(client, "[SM] %t", "Dead Player Rename", m_TargetName);
-		}
-		ClientCommand(target, "name %s", g_NewName[target]);
-	}
 	g_NewName[target][0] = '\0';
 }
 
@@ -73,31 +59,31 @@ public AdminMenu_Rename(Handle:topmenu,
 	}
 }
 
-DisplayRenameTargetMenu(client)
+DisplayRenameTargetMenu(int client)
 {
-	new Handle:menu = CreateMenu(MenuHandler_Rename);
+	Menu menu = CreateMenu(MenuHandler_Rename);
 	
-	decl String:title[100];
+	char title[100];
 	Format(title, sizeof(title), "%T:", "Rename player", client);
-	SetMenuTitle(menu, title);
-	SetMenuExitBackButton(menu, true);
+	menu.SetTitle(title);
+	menu.ExitBackButton = true;
 	
 	AddTargetsToMenu(menu, client, true);
 	
-	DisplayMenu(menu, client, MENU_TIME_FOREVER);
+	menu.Display(client, MENU_TIME_FOREVER);
 }
 
-public MenuHandler_Rename(Handle:menu, MenuAction:action, param1, param2)
+public MenuHandler_Rename(Menu menu, MenuAction action, int param1, int param2)
 {
 	if (action == MenuAction_End)
 	{
-		CloseHandle(menu);
+		delete menu;
 	}
 	else if (action == MenuAction_Cancel)
 	{
-		if (param2 == MenuCancel_ExitBack && hTopMenu != INVALID_HANDLE)
+		if (param2 == MenuCancel_ExitBack && hTopMenu)
 		{
-			DisplayTopMenu(hTopMenu, param1, TopMenuPosition_LastCategory);
+			hTopMenu.Display(param1, TopMenuPosition_LastCategory);
 		}
 	}
 	else if (action == MenuAction_Select)
@@ -105,7 +91,7 @@ public MenuHandler_Rename(Handle:menu, MenuAction:action, param1, param2)
 		decl String:info[32];
 		new userid, target;
 		
-		GetMenuItem(menu, param2, info, sizeof(info));
+		menu.GetItem(param2, info, sizeof(info));
 		userid = StringToInt(info);
 
 		if ((target = GetClientOfUserId(userid)) == 0)

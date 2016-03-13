@@ -226,6 +226,20 @@ static cell_t CS_DropWeapon(IPluginContext *pContext, const cell_t *params)
 	static ICallWrapper *pWrapper = NULL;
 	if (!pWrapper)
 	{
+#if SOURCE_ENGINE == SE_CSGO
+		REGISTER_NATIVE_ADDR("CSWeaponDrop",
+			PassInfo pass[3]; \
+			pass[0].flags = PASSFLAG_BYVAL; \
+			pass[0].type = PassType_Basic; \
+			pass[0].size = sizeof(CBaseEntity *); \
+			pass[1].flags = PASSFLAG_BYVAL; \
+			pass[1].type = PassType_Basic; \
+			pass[1].size = sizeof(Vector); \
+			pass[2].flags = PASSFLAG_BYVAL; \
+			pass[2].type = PassType_Basic; \
+			pass[2].size = sizeof(bool); \
+			pWrapper = g_pBinTools->CreateCall(addr, CallConv_ThisCall, NULL, pass, 3))
+#else
 		REGISTER_NATIVE_ADDR("CSWeaponDrop",
 			PassInfo pass[3]; \
 			pass[0].flags = PASSFLAG_BYVAL; \
@@ -238,6 +252,7 @@ static cell_t CS_DropWeapon(IPluginContext *pContext, const cell_t *params)
 			pass[2].type  = PassType_Basic; \
 			pass[2].size  = sizeof(bool); \
 			pWrapper = g_pBinTools->CreateCall(addr, CallConv_ThisCall, NULL, pass, 3))
+#endif
 	}
 
 	CBaseEntity *pEntity;
@@ -270,7 +285,11 @@ static cell_t CS_DropWeapon(IPluginContext *pContext, const cell_t *params)
 	if (params[4] == 1 && g_pCSWeaponDropDetoured)
 		g_pIgnoreCSWeaponDropDetour = true;
 
+#if SOURCE_ENGINE == SE_CSGO
+	unsigned char vstk[sizeof(CBaseEntity *) * 2 + sizeof(bool) + sizeof(Vector)];
+#else
 	unsigned char vstk[sizeof(CBaseEntity *) * 2 + sizeof(bool) * 2];
+#endif
 	unsigned char *vptr = vstk;
 
 	// <psychonic> first one is always false. second is true to toss, false to just drop
@@ -278,9 +297,15 @@ static cell_t CS_DropWeapon(IPluginContext *pContext, const cell_t *params)
 	vptr += sizeof(CBaseEntity *);
 	*(CBaseEntity **)vptr = pWeapon;
 	vptr += sizeof(CBaseEntity *);
+#if SOURCE_ENGINE == SE_CSGO
+	*(Vector *)vptr = vec3_origin;
+	vptr += sizeof(Vector);
+	*(bool *)vptr = false;
+#else
 	*(bool *)vptr = false;
 	vptr += sizeof(bool);
 	*(bool *)vptr = (params[3]) ? true : false;
+#endif
 
  	pWrapper->Execute(vstk, NULL);
 
@@ -305,6 +330,12 @@ static cell_t CS_TerminateRound(IPluginContext *pContext, const cell_t *params)
 		return pContext->ThrowNativeError("GameRules not available. TerminateRound native disabled.");
 	}
 
+	int reason = params[2];
+	
+#if SOURCE_ENGINE == SE_CSGO
+	reason++;
+#endif
+	
 #if SOURCE_ENGINE != SE_CSGO || !defined(WIN32)
 	static ICallWrapper *pWrapper = NULL;
 
@@ -331,7 +362,7 @@ static cell_t CS_TerminateRound(IPluginContext *pContext, const cell_t *params)
 	vptr += sizeof(void *);
 	*(float *)vptr = sp_ctof(params[1]);
 	vptr += sizeof(float);
-	*(int*)vptr = params[2];
+	*(int*)vptr = reason;
 
 	pWrapper->Execute(vstk, NULL);
 #else
@@ -346,13 +377,11 @@ static cell_t CS_TerminateRound(IPluginContext *pContext, const cell_t *params)
 		g_pIgnoreTerminateDetour = true;
 
 	float delay = sp_ctof(params[1]);
-	int reason = params[2];
-	signed int unknown = 1;//We might want to find what this is?
+	
 	__asm
 	{
 		push reason
 		movss xmm1, delay
-		mov edi, unknown
 		mov ecx, gamerules
 		call addr
 	}
@@ -396,6 +425,7 @@ static cell_t CS_GetTranslatedWeaponAlias(IPluginContext *pContext, const cell_t
 
 static cell_t CS_GetWeaponPrice(IPluginContext *pContext, const cell_t *params)
 {
+
 	if (!IsValidWeaponID(params[2]))
 		return pContext->ThrowNativeError("Invalid WeaponID passed for this game");
 
@@ -403,6 +433,7 @@ static cell_t CS_GetWeaponPrice(IPluginContext *pContext, const cell_t *params)
 
 	//Hard code return values for weapons that dont call GetWeaponPrice and always use default value.
 #if SOURCE_ENGINE == SE_CSGO
+
 	if (id == WEAPON_C4 || id == WEAPON_KNIFE || id == WEAPON_KNIFE_GG)
 		return 0;
 #else
@@ -435,23 +466,49 @@ static cell_t CS_GetWeaponPrice(IPluginContext *pContext, const cell_t *params)
 #if SOURCE_ENGINE == SE_CSGO
 	static ICallWrapper *pWrapper = NULL;
 
+#if defined(WIN32)
+	if(!pWrapper)
+	{
+		void *pGetWeaponPrice = GetWeaponPriceFunction();
+		if(!pGetWeaponPrice)
+		{
+			return pContext->ThrowNativeError("Failed to locate function");
+		}
+
+		PassInfo pass[2];
+		PassInfo ret;
+		pass[0].flags = PASSFLAG_BYVAL;
+		pass[0].type = PassType_Basic;
+		pass[0].size = sizeof(CEconItemView *);
+		pass[1].flags = PASSFLAG_BYVAL;
+		pass[1].type = PassType_Basic;
+		pass[1].size = sizeof(int);
+		ret.flags = PASSFLAG_BYVAL;
+		ret.type = PassType_Basic;
+		ret.size = sizeof(int);
+		pWrapper = g_pBinTools->CreateCall(pGetWeaponPrice, CallConv_ThisCall, &ret, pass, 2);
+	}
+#else
 	if (!pWrapper)
 	{
-		REGISTER_NATIVE_ADDR("GetAttributeInt",
-		PassInfo pass[2]; \
+		REGISTER_NATIVE_ADDR("GetWeaponPrice",
+		PassInfo pass[3]; \
 		PassInfo ret; \
 		pass[0].flags = PASSFLAG_BYVAL; \
 		pass[0].type = PassType_Basic; \
-		pass[0].size = sizeof(char *); \
+		pass[0].size = sizeof(CEconItemView *); \
 		pass[1].flags = PASSFLAG_BYVAL; \
 		pass[1].type = PassType_Basic; \
-		pass[1].size = sizeof(CEconItemView *); \
+		pass[1].size = sizeof(int); \
+		pass[2].flags = PASSFLAG_BYVAL; \
+		pass[2].type = PassType_Float; \
+		pass[2].size = sizeof(float); \
 		ret.flags = PASSFLAG_BYVAL; \
 		ret.type = PassType_Basic; \
 		ret.size = sizeof(int); \
-		pWrapper = g_pBinTools->CreateCall(addr, CallConv_ThisCall, &ret, pass, 2))
+		pWrapper = g_pBinTools->CreateCall(addr, CallConv_ThisCall, &ret, pass, 3))
 	}
-
+#endif
 	// Get a CEconItemView for the m4
 	// Found in CCSPlayer::HandleCommand_Buy_Internal
 	// Linux a1 - CCSPlayer *pEntity, v5 - Player Team, a3 - ItemLoadoutSlot -1 use default loadoutslot:
@@ -529,14 +586,22 @@ static cell_t CS_GetWeaponPrice(IPluginContext *pContext, const cell_t *params)
 		pGetView->Execute(vstk_view, &view);
 	}
 
-	unsigned char vstk[sizeof(void *) * 2 + sizeof(char *)];
+#if defined(WIN32)
+	unsigned char vstk[sizeof(void *) * 2 + sizeof(int)];
+#else
+	unsigned char vstk[sizeof(void *) * 2 + sizeof(int) + sizeof(float)];
+#endif
 	unsigned char *vptr = vstk;
 
 	*(void **)vptr = info;
 	vptr += sizeof(void *);
-	*(const char **)vptr = "in game price";
-	vptr += sizeof(const char *);
 	*(CEconItemView **)vptr = view;
+	vptr += sizeof(CEconItemView *);
+	*(int *)vptr = 0;
+#if !defined(WIN32)
+	vptr += sizeof(int);
+	*(float *)vptr = 1.0;
+#endif
 
 	int price = 0;
  	pWrapper->Execute(vstk, &price);

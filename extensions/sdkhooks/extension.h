@@ -6,7 +6,7 @@
 #include <IBinTools.h>
 #include <convar.h>
 #include <sh_list.h>
-#include <amtl/am-vector.h>
+#include <am-vector.h>
 #include <vtable_hook_helper.h>
 
 #include <iplayerinfo.h>
@@ -88,6 +88,11 @@ enum SDKHookType
 	SDKHook_Reload,
 	SDKHook_ReloadPost,
 	SDKHook_GetMaxHealth,
+	SDKHook_Blocked,
+	SDKHook_BlockedPost,
+	SDKHook_OnTakeDamage_Alive,
+	SDKHook_OnTakeDamage_AlivePost,
+	SDKHook_CanBeAutobalanced,
 	SDKHook_MAXHOOKS
 };
 
@@ -138,6 +143,9 @@ public:
 class IEntityListener
 {
 public:
+#if SOURCE_ENGINE == SE_BMS
+	virtual void OnEntityPreSpawned( CBaseEntity *pEntity ) {};
+#endif
 	virtual void OnEntityCreated( CBaseEntity *pEntity ) {};
 	virtual void OnEntitySpawned( CBaseEntity *pEntity ) {};
 	virtual void OnEntityDeleted( CBaseEntity *pEntity ) {};
@@ -277,6 +285,7 @@ public:
 	/**
 	 * CBaseEntity Hook Handlers
 	 */
+	bool Hook_CanBeAutobalanced();
 	void Hook_EndTouch(CBaseEntity *pOther);
 	void Hook_EndTouchPost(CBaseEntity *pOther);
 	void Hook_FireBulletsPost(const FireBulletsInfo_t &info);
@@ -286,6 +295,8 @@ public:
 	void Hook_GroundEntChangedPost(void *pVar);
 	int Hook_OnTakeDamage(CTakeDamageInfoHack &info);
 	int Hook_OnTakeDamagePost(CTakeDamageInfoHack &info);
+	int Hook_OnTakeDamage_Alive(CTakeDamageInfoHack &info);
+	int Hook_OnTakeDamage_AlivePost(CTakeDamageInfoHack &info);
 	void Hook_PreThink();
 	void Hook_PreThinkPost();
 	void Hook_PostThink();
@@ -307,7 +318,8 @@ public:
 	void Hook_ThinkPost();
 	void Hook_Touch(CBaseEntity *pOther);
 	void Hook_TouchPost(CBaseEntity *pOther);
-#if SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_TF2 || SOURCE_ENGINE == SE_SDK2013
+#if SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_TF2 \
+	|| SOURCE_ENGINE == SE_BMS || SOURCE_ENGINE == SE_SDK2013
 	void Hook_TraceAttack(CTakeDamageInfoHack &info, const Vector &vecDir, trace_t *ptr, CDmgAccumulator *pAccumulator);
 	void Hook_TraceAttackPost(CTakeDamageInfoHack &info, const Vector &vecDir, trace_t *ptr, CDmgAccumulator *pAccumulator);
 #else
@@ -319,6 +331,8 @@ public:
 	void Hook_UsePost(CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value);
 	void Hook_VPhysicsUpdate(IPhysicsObject *pPhysics);
 	void Hook_VPhysicsUpdatePost(IPhysicsObject *pPhysics);
+	void Hook_Blocked(CBaseEntity *pOther);
+	void Hook_BlockedPost(CBaseEntity *pOther);
 	bool Hook_WeaponCanSwitchTo(CBaseCombatWeapon *pWeapon);
 	bool Hook_WeaponCanSwitchToPost(CBaseCombatWeapon *pWeapon);
 	bool Hook_WeaponCanUse(CBaseCombatWeapon *pWeapon);
@@ -335,6 +349,10 @@ private:
 	void HandleEntityDeleted(CBaseEntity *pEntity, int ref);
 	void Unhook(CBaseEntity *pEntity);
 	void Unhook(IPluginContext *pContext);
+
+private:
+	int HandleOnTakeDamageHook(CTakeDamageInfoHack &info, SDKHookType hookType);
+	int HandleOnTakeDamageHookPost(CTakeDamageInfoHack &info, SDKHookType hookType);
 };
 
 extern CGlobalVars *gpGlobals;

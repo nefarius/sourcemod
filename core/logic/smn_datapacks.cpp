@@ -31,8 +31,8 @@
 
 #include "common_logic.h"
 #include <IHandleSys.h>
-#include <IDataPack.h>
 #include <ISourceMod.h>
+#include "CDataPack.h"
 
 HandleType_t g_DataPackType;
 
@@ -61,13 +61,19 @@ public:
 	}
 	void OnHandleDestroy(HandleType_t type, void *object)
 	{
-		g_pSM->FreeDataPack(reinterpret_cast<IDataPack *>(object));
+		CDataPack::Free(reinterpret_cast<IDataPack *>(object));
+	}
+	bool GetHandleApproxSize(HandleType_t type, void *object, unsigned int *pSize)
+	{
+		CDataPack *pack = reinterpret_cast<CDataPack *>(object);
+		*pSize = sizeof(CDataPack) + pack->GetCapacity();
+		return true;
 	}
 };
 
 static cell_t smn_CreateDataPack(IPluginContext *pContext, const cell_t *params)
 {
-	IDataPack *pDataPack = g_pSM->CreateDataPack();
+	IDataPack *pDataPack = CDataPack::New();
 
 	if (!pDataPack)
 	{
@@ -125,7 +131,6 @@ static cell_t smn_WritePackString(IPluginContext *pContext, const cell_t *params
 	HandleError herr;
 	HandleSecurity sec;
 	IDataPack *pDataPack;
-	int err;
 
 	sec.pOwner = pContext->GetIdentity();
 	sec.pIdentity = g_pCoreIdent;
@@ -137,13 +142,29 @@ static cell_t smn_WritePackString(IPluginContext *pContext, const cell_t *params
 	}
 
 	char *str;
-	if ((err=pContext->LocalToString(params[2], &str)) != SP_ERROR_NONE)
+	pContext->LocalToString(params[2], &str);
+	pDataPack->PackString(str);
+
+	return 1;
+}
+
+static cell_t smn_WritePackFunction(IPluginContext *pContext, const cell_t *params)
+{
+	Handle_t hndl = static_cast<Handle_t>(params[1]);
+	HandleError herr;
+	HandleSecurity sec;
+	IDataPack *pDataPack;
+
+	sec.pOwner = pContext->GetIdentity();
+	sec.pIdentity = g_pCoreIdent;
+
+	if ((herr = handlesys->ReadHandle(hndl, g_DataPackType, &sec, (void **)&pDataPack))
+		!= HandleError_None)
 	{
-		pContext->ThrowNativeErrorEx(err, NULL);
-		return 0;
+		return pContext->ThrowNativeError("Invalid data pack handle %x (error %d)", hndl, herr);
 	}
 
-	pDataPack->PackString(str);
+	pDataPack->PackFunction(params[2]);
 
 	return 1;
 }
@@ -164,7 +185,7 @@ static cell_t smn_ReadPackCell(IPluginContext *pContext, const cell_t *params)
 		return pContext->ThrowNativeError("Invalid data pack handle %x (error %d)", hndl, herr);
 	}
 
-	if (!pDataPack->IsReadable(sizeof(size_t) + sizeof(cell_t)))
+	if (!pDataPack->IsReadable(sizeof(char) + sizeof(size_t) + sizeof(cell_t)))
 	{
 		return pContext->ThrowNativeError("DataPack operation is out of bounds.");
 	}
@@ -188,7 +209,7 @@ static cell_t smn_ReadPackFloat(IPluginContext *pContext, const cell_t *params)
 		return pContext->ThrowNativeError("Invalid data pack handle %x (error %d)", hndl, herr);
 	}
 
-	if (!pDataPack->IsReadable(sizeof(size_t) + sizeof(float)))
+	if (!pDataPack->IsReadable(sizeof(char) + sizeof(size_t) + sizeof(float)))
 	{
 		return pContext->ThrowNativeError("DataPack operation is out of bounds.");
 	}
@@ -221,6 +242,30 @@ static cell_t smn_ReadPackString(IPluginContext *pContext, const cell_t *params)
 	pContext->StringToLocal(params[2], params[3], str);
 
 	return 1;
+}
+
+static cell_t smn_ReadPackFunction(IPluginContext *pContext, const cell_t *params)
+{
+	Handle_t hndl = static_cast<Handle_t>(params[1]);
+	HandleError herr;
+	HandleSecurity sec;
+	IDataPack *pDataPack;
+
+	sec.pOwner = pContext->GetIdentity();
+	sec.pIdentity = g_pCoreIdent;
+
+	if ((herr = handlesys->ReadHandle(hndl, g_DataPackType, &sec, (void **)&pDataPack))
+		!= HandleError_None)
+	{
+		return pContext->ThrowNativeError("Invalid data pack handle %x (error %d)", hndl, herr);
+	}
+
+	if (!pDataPack->IsReadable(sizeof(char) + sizeof(size_t) + sizeof(cell_t)))
+	{
+		return pContext->ThrowNativeError("DataPack operation is out of bounds.");
+	}
+
+	return pDataPack->ReadFunction();
 }
 
 static cell_t smn_ResetPack(IPluginContext *pContext, const cell_t *params)
@@ -318,12 +363,29 @@ REGISTER_NATIVES(datapacknatives)
 	{"WritePackCell",			smn_WritePackCell},
 	{"WritePackFloat",			smn_WritePackFloat},
 	{"WritePackString",			smn_WritePackString},
+	{"WritePackFunction",		smn_WritePackFunction},
 	{"ReadPackCell",			smn_ReadPackCell},
 	{"ReadPackFloat",			smn_ReadPackFloat},
 	{"ReadPackString",			smn_ReadPackString},
+	{"ReadPackFunction",		smn_ReadPackFunction},
 	{"ResetPack",				smn_ResetPack},
 	{"GetPackPosition",			smn_GetPackPosition},
 	{"SetPackPosition",			smn_SetPackPosition},
 	{"IsPackReadable",			smn_IsPackReadable},
-	{NULL,						NULL}
+
+	// Methodmap versions.
+	{"DataPack.DataPack",			smn_CreateDataPack},
+	{"DataPack.WriteCell",			smn_WritePackCell},
+	{"DataPack.WriteFloat",			smn_WritePackFloat},
+	{"DataPack.WriteString",		smn_WritePackString},
+	{"DataPack.WriteFunction",		smn_WritePackFunction},
+	{"DataPack.ReadCell",			smn_ReadPackCell},
+	{"DataPack.ReadFloat",			smn_ReadPackFloat},
+	{"DataPack.ReadString",			smn_ReadPackString},
+	{"DataPack.ReadFunction",		smn_ReadPackFunction},
+	{"DataPack.Reset",				smn_ResetPack},
+	{"DataPack.Position.get",		smn_GetPackPosition},
+	{"DataPack.Position.set",		smn_SetPackPosition},
+	{"DataPack.IsReadable",			smn_IsPackReadable},
+	{NULL,							NULL}
 };

@@ -44,7 +44,7 @@
  * @param delay		Delay in seconds to send the TE.
  * @return		Plugin_Continue to allow the transmission of the TE, Plugin_Stop to block it.
  */
-functag public Action:TEHook(const String:te_name[], const Players[], numClients, Float:delay);
+typedef TEHook = function Action (const char[] te_name, const int[] Players, int numClients, float delay);
 
 /**
  * Hooks a temp entity.
@@ -171,7 +171,7 @@ native TE_WriteFloatArray(const String:prop[], const Float:array[], arraySize);
  * @noreturn
  * @error		Invalid client index or client not in game.
  */
-native TE_Send(clients[], numClients, Float:delay=0.0);
+native TE_Send(const clients[], numClients, Float:delay=0.0);
 
 /**
  * Sets an encoded entity index in the current temp entity.
@@ -225,4 +225,22 @@ stock TE_SendToClient(client, Float:delay=0.0)
 	players[0] = client;
 
 	return TE_Send(players, 1, delay);
+}
+
+/**
+ * Sends the current TE to all clients that are in 
+ * visible or audible range of the origin.
+ * @note See TE_Start().
+ * @note See GetClientsInRange()
+ *
+ * @param origin		Coordinates from which to test range.
+ * @param rangeType		Range type to use for filtering clients.
+ * @param delay			Delay in seconds to send the TE.
+ * @noreturn
+ */
+stock TE_SendToAllInRange(float origin[3], ClientRangeType rangeType, float delay=0.0)
+{
+	int[] clients = new int[MaxClients];
+	int total = GetClientsInRange(origin, rangeType, clients, MaxClients);
+	return TE_Send(clients, total, delay);
 }

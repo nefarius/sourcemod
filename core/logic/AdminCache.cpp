@@ -39,15 +39,19 @@
 #include "AdminCache.h"
 #include "Translator.h"
 #include "common_logic.h"
+#include "stringutil.h"
+#include <bridge/include/ILogger.h>
+#include <bridge/include/CoreProvider.h>
+#include <bridge/include/IVEngineServerBridge.h>
 
 #define LEVEL_STATE_NONE		0
 #define LEVEL_STATE_LEVELS		1
 #define LEVEL_STATE_FLAGS		2
 
 AdminCache g_Admins;
-char g_ReverseFlags[26];
+char g_ReverseFlags[AdminFlags_TOTAL];
 AdminFlag g_FlagLetters[26];
-bool g_FlagSet[26];
+bool g_FlagCharSet[26];
 
 /* Default flags */
 AdminFlag g_DefaultFlags[26] = 
@@ -71,9 +75,9 @@ public:
 			memcpy(g_FlagLetters, g_DefaultFlags, sizeof(AdminFlag) * 26);
 			for (unsigned int i=0; i<20; i++)
 			{
-				g_FlagSet[i] = true;
+				g_FlagCharSet[i] = true;
 			}
-			g_FlagSet[25] = true;
+			g_FlagCharSet[25] = true;
 		}
 	}
 private:
@@ -103,7 +107,7 @@ private:
 	{
 		m_LevelState = LEVEL_STATE_NONE;
 		m_IgnoreLevel = 0;
-		memset(g_FlagSet, 0, sizeof(g_FlagSet));
+		memset(g_FlagCharSet, 0, sizeof(g_FlagCharSet));
 	}
 	SMCResult ReadSMC_NewSection(const SMCStates *states, const char *name)
 	{
@@ -163,7 +167,7 @@ private:
 			return SMCResult_Continue;
 		}
 
-		g_FlagSet[c] = true;
+		g_FlagCharSet[c] = true;
 
 		return SMCResult_Continue;
 	}
@@ -198,11 +202,11 @@ private:
 
 		if (!m_bFileNameLogged)
 		{
-			smcore.LogError("[SM] Parse error(s) detected in file \"%s\":", m_File);
+			logger->LogError("[SM] Parse error(s) detected in file \"%s\":", m_File);
 			m_bFileNameLogged = true;
 		}
 
-		smcore.LogError("[SM] (Line %d): %s", states ? states->line : 0, buffer);
+		logger->LogError("[SM] (Line %d): %s", states ? states->line : 0, buffer);
 	}
 private:
 	bool m_bFileNameLogged;
@@ -267,6 +271,21 @@ void AdminCache::OnSourceModStartup(bool late)
 	NameFlag("custom4", Admin_Custom4);
 	NameFlag("custom5", Admin_Custom5);
 	NameFlag("custom6", Admin_Custom6);
+
+	auto sm_dump_admcache = [this] (int client, const ICommandArgs *args) -> bool {
+		char buffer[PLATFORM_MAX_PATH];
+		g_pSM->BuildPath(Path_SM, buffer, sizeof(buffer), "data/admin_cache_dump.txt");
+
+		if (!DumpCache(buffer)) {
+			bridge->ConsolePrint("Could not open file for writing: %s", buffer);
+			return true;
+		}
+
+		bridge->ConsolePrint("Admin cache dumped to: %s", buffer);
+		return true;
+	};
+
+	bridge->DefineCommand("sm_dump_admcache", "Dumps the admin cache for debugging", sm_dump_admcache);
 }
 
 void AdminCache::OnSourceModAllInitialized()
@@ -327,7 +346,7 @@ void AdminCache::AddCommandOverride(const char *cmd, OverrideType type, FlagBits
 		return;
 
 	map->insert(cmd, flags);
-	smcore.UpdateAdminCmdFlags(cmd, type, flags, false);
+	bridge->UpdateAdminCmdFlags(cmd, type, flags, false);
 }
 
 bool AdminCache::GetCommandOverride(const char *cmd, OverrideType type, FlagBits *pFlags)
@@ -356,13 +375,13 @@ void AdminCache::UnsetCommandOverride(const char *cmd, OverrideType type)
 void AdminCache::_UnsetCommandGroupOverride(const char *group)
 {
 	m_CmdGrpOverrides.remove(group);
-	smcore.UpdateAdminCmdFlags(group, Override_CommandGroup, 0, true);
+	bridge->UpdateAdminCmdFlags(group, Override_CommandGroup, 0, true);
 }
 
 void AdminCache::_UnsetCommandOverride(const char *cmd)
 {
 	m_CmdOverrides.remove(cmd);
-	smcore.UpdateAdminCmdFlags(cmd, Override_Command, 0, true);
+	bridge->UpdateAdminCmdFlags(cmd, Override_Command, 0, true);
 }
 
 void AdminCache::DumpCommandOverrideCache(OverrideType type)
@@ -981,7 +1000,6 @@ void AdminCache::DumpAdminCache(AdminCachePart part, bool rebuild)
 {
 	List<IAdminListener *>::iterator iter;
 	IAdminListener *pListener;
-	cell_t result;
 
 	if (part == AdminCache_Overrides)
 	{
@@ -995,7 +1013,7 @@ void AdminCache::DumpAdminCache(AdminCachePart part, bool rebuild)
 				pListener->OnRebuildOverrideCache();
 			}
 			m_pCacheFwd->PushCell(part);
-			m_pCacheFwd->Execute(&result);
+			m_pCacheFwd->Execute();
 		}
 	} else if (part == AdminCache_Groups || part == AdminCache_Admins) {
 		if (part == AdminCache_Groups)
@@ -1009,7 +1027,7 @@ void AdminCache::DumpAdminCache(AdminCachePart part, bool rebuild)
 					pListener->OnRebuildGroupCache();
 				}
 				m_pCacheFwd->PushCell(part);
-				m_pCacheFwd->Execute(&result);
+				m_pCacheFwd->Execute();
 			}
 		}
 		InvalidateAdminCache(true);
@@ -1021,7 +1039,7 @@ void AdminCache::DumpAdminCache(AdminCachePart part, bool rebuild)
 				pListener->OnRebuildAdminCache((part == AdminCache_Groups));
 			}
 			m_pCacheFwd->PushCell(AdminCache_Admins);
-			m_pCacheFwd->Execute(&result);
+			m_pCacheFwd->Execute();
 			playerhelpers->RecheckAnyAdmins();
 		}
 	}
@@ -1056,6 +1074,65 @@ bool AdminCache::GetMethodIndex(const char *name, unsigned int *_index)
 	return false;
 }
 
+/*
+ * Converts Steam2 id, Steam3 id, or SteamId64 to unified, legacy
+ * admin identity format. (account id part of Steam2 format)
+ */
+bool AdminCache::GetUnifiedSteamIdentity(const char *ident, char *out, size_t maxlen)
+{
+	int len = strlen(ident);
+	if (!strcmp(ident, "BOT"))
+	{
+		// Bots
+		strncopy(out, ident, maxlen);
+		return true;
+	}
+	else if (len >= 11 && !strncmp(ident, "STEAM_", 6) && ident[8] != '_')
+	{
+		// non-bot/lan Steam2 Id, strip off the STEAM_* part
+		snprintf(out, maxlen, "%s", &ident[8]);
+		return true;
+	}
+	else if (len >= 7 && !strncmp(ident, "[U:", 3) && ident[len-1] == ']')
+	{
+		// Steam3 Id, replicate the Steam2 Post-"STEAM_" part
+		uint32_t accountId = strtoul(&ident[5], nullptr, 10);
+		snprintf(out, maxlen, "%u:%u", accountId & 1, accountId >> 1);
+		return true;
+	}
+	else
+	{
+		// 64-bit CSteamID, replicate the Steam2 Post-"STEAM_" part
+
+		// some constants from steamclientpublic.h
+		static const uint32_t k_EAccountTypeIndividual = 1;
+		static const int k_EUniverseInvalid = 0;
+		static const int k_EUniverseMax = 5;
+		static const unsigned int k_unSteamUserWebInstance	= 4;
+		
+		uint64_t steamId = strtoull(ident, nullptr, 10);
+		if (steamId > 0)
+		{
+			// Make some attempt at being sure it's a valid id rather than other number,
+			// even though we're only going to use the lower 32 bits.
+			uint32_t accountId = steamId & 0xFFFFFFFF;
+			uint32_t accountType = (steamId >> 52) & 0xF;
+			int universe = steamId >> 56;
+			uint32_t accountInstance = (steamId >> 32) & 0xFFFFF;
+			if (accountId > 0
+				&& universe > k_EUniverseInvalid && universe < k_EUniverseMax
+				&& accountType == k_EAccountTypeIndividual && accountInstance <= k_unSteamUserWebInstance
+				)
+			{
+				snprintf(out, maxlen, "%u:%u", accountId & 1, accountId >> 1);
+				return true;
+			}
+		}
+	}
+	
+	return false;
+}
+
 bool AdminCache::BindAdminIdentity(AdminId id, const char *auth, const char *ident)
 {
 	if (ident[0] == '\0')
@@ -1073,10 +1150,14 @@ bool AdminCache::BindAdminIdentity(AdminId id, const char *auth, const char *ide
 	if (!m_AuthTables.retrieve(auth, &method))
 		return false;
 
-	/* If the id was a steam id strip off the STEAM_*: part */
-	if (strcmp(auth, "steam") == 0 && strncmp(ident, "STEAM_", 6) == 0)
+	/* If the auth type is steam, the id could be in a number of formats. Unify it. */
+	char steamIdent[16];
+	if (strcmp(auth, "steam") == 0)
 	{
-		ident += 8;
+		if (!GetUnifiedSteamIdentity(ident, steamIdent, sizeof(steamIdent)))
+			return false;
+		
+		ident = steamIdent;
 	}
 
 	if (method->identities.contains(ident))
@@ -1097,10 +1178,14 @@ AdminId AdminCache::FindAdminByIdentity(const char *auth, const char *identity)
 	if (!m_AuthTables.retrieve(auth, &method))
 		return INVALID_ADMIN_ID;
 
-	/* If the id was a steam id strip off the STEAM_*: part */
-	if (strcmp(auth, "steam") == 0 && strncmp(identity, "STEAM_", 6) == 0)
+	/* If the auth type is steam, the id could be in a number of formats. Unify it. */
+	char steamIdent[16];
+	if (strcmp(auth, "steam") == 0)
 	{
-		identity += 8;
+		if (!GetUnifiedSteamIdentity(identity, steamIdent, sizeof(steamIdent)))
+			return INVALID_ADMIN_ID;
+		
+		identity = steamIdent;
 	}
 
 	AdminId id;
@@ -1449,7 +1534,7 @@ bool AdminCache::CanAdminTarget(AdminId id, AdminId target)
 	}
 
 	/** Fourth, if the targeted admin is immune from targeting admin. */
-	int mode = smcore.GetImmunityMode();
+	int mode = bridge->GetImmunityMode();
 	switch (mode)
 	{
 		case 1:
@@ -1517,7 +1602,7 @@ bool AdminCache::FindFlag(char c, AdminFlag *pAdmFlag)
 {
 	if (c < 'a' 
 		|| c > 'z'
-		|| !g_FlagSet[(unsigned)c - (unsigned)'a'])
+		|| !g_FlagCharSet[(unsigned)c - (unsigned)'a'])
 	{
 		return false;
 	}
@@ -1532,17 +1617,13 @@ bool AdminCache::FindFlag(char c, AdminFlag *pAdmFlag)
 
 bool AdminCache::FindFlagChar(AdminFlag flag, char *c)
 {
-	if (!g_FlagSet[flag])
-	{
-		return false;
-	}
-
+	char flagchar = g_ReverseFlags[flag];
 	if (c)
 	{
-		*c = g_ReverseFlags[flag];
+		*c = flagchar;
 	}
 
-	return true;
+	return flagchar != '?';
 }
 
 FlagBits AdminCache::ReadFlagString(const char *flags, const char **end)
@@ -1590,7 +1671,7 @@ bool AdminCache::CanAdminUseCommand(int client, const char *cmd)
 		cmd++;
 	}
 
-	if (!smcore.LookForCommandAdminFlags(cmd, &bits))
+	if (!bridge->LookForCommandAdminFlags(cmd, &bits))
 	{
 		if (!GetCommandOverride(cmd, otype, &bits))
 		{
@@ -1665,7 +1746,7 @@ bool AdminCache::CheckAccess(int client, const char *cmd, FlagBits flags, bool o
 	bool found_command = false;
 	if (!override_only)
 	{
-		found_command = smcore.LookForCommandAdminFlags(cmd, &bits);
+		found_command = bridge->LookForCommandAdminFlags(cmd, &bits);
 	}
 
 	if (!found_command)
@@ -1702,7 +1783,7 @@ void iterator_group_grp_override(FILE *fp, const char *key, OverrideRule rule)
 	fprintf(fp, "\t\t\t\"@%s\"\t\t\"%s\"\n", key, str);
 }
 
-void AdminCache::DumpCache(FILE *fp)
+bool AdminCache::DumpCache(const char *filename)
 {
 	int *itable;
 	AdminId aid;
@@ -1711,6 +1792,12 @@ void AdminCache::DumpCache(FILE *fp)
 	unsigned int num;
 	AdminUser *pAdmin;
 	AdminGroup *pGroup;
+	
+	FILE *fp;
+	if ((fp = fopen(filename, "wt")) == NULL)
+	{
+		return false;
+	}
 
 	fprintf(fp, "\"Groups\"\n{\n");
 	
@@ -1841,6 +1928,10 @@ void AdminCache::DumpCache(FILE *fp)
 	for (FlagMap::iterator iter = m_CmdOverrides.iter(); !iter.empty(); iter.next())
 		iterator_glob_basic_override(fp, iter->key.chars(), iter->value);
 	fprintf(fp, "}\n");
+	
+	fclose(fp);
+	
+	return true;
 }
 
 AdminGroup *AdminCache::GetGroup(GroupId gid)

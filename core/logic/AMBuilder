@@ -3,9 +3,11 @@ import os
 
 binary = SM.Library(builder, 'sourcemod.logic')
 binary.compiler.cxxincludes += [
+  builder.sourcePath,
   os.path.join(builder.sourcePath, 'core', 'logic'),
   os.path.join(builder.sourcePath, 'public'),
-  os.path.join(builder.sourcePath, 'public', 'sourcepawn'),
+  os.path.join(builder.sourcePath, 'sourcepawn', 'include'),
+  os.path.join(builder.sourcePath, 'public', 'amtl', 'amtl'),
   os.path.join(builder.sourcePath, 'public', 'amtl'),
   os.path.join(SM.mms_root, 'core', 'sourcehook')
 ]
@@ -19,6 +21,12 @@ if builder.target_platform == 'linux':
 elif builder.target_platform == 'mac':
   binary.compiler.cflags += ['-Wno-deprecated-declarations']
   binary.compiler.postlink += ['-framework', 'CoreServices']
+
+if binary.compiler.vendor == 'gcc' or binary.compiler.vendor == 'clang':
+  binary.compiler.cxxflags += ['-fno-rtti']
+elif binary.compiler.vendor == 'msvc':
+  binary.compiler.cxxflags += ['/GR-']
+
 binary.sources += [
   'common_logic.cpp',
   'smn_adt_array.cpp',
@@ -33,7 +41,6 @@ binary.sources += [
   'TextParsers.cpp',
   'smn_textparse.cpp',
   'smn_adt_trie.cpp',
-  'Profiler.cpp',
   'smn_functions.cpp',
   'smn_timers.cpp',
   'smn_players.cpp',
@@ -57,7 +64,6 @@ binary.sources += [
   'PluginSys.cpp',
   'HandleSys.cpp',
   'NativeOwner.cpp',
-  'NativeInvoker.cpp',
   'ExtensionSys.cpp',
   'DebugReporter.cpp',
   'Database.cpp',
@@ -66,6 +72,15 @@ binary.sources += [
   'AdminCache.cpp',
   'sm_trie.cpp',
   'smn_console.cpp',
+  'ProfileTools.cpp',
+  'Logger.cpp',
+  'smn_core.cpp',
+  'smn_menus.cpp',
+  'sprintf.cpp',
+  'LibrarySys.cpp',
+  'RootConsoleMenu.cpp',
+  'CDataPack.cpp',
+  'frame_tasks.cpp',
 ]
 if builder.target_platform == 'windows':
   binary.sources += ['thread/WinThreads.cpp']

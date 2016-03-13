@@ -29,22 +29,13 @@
  *
  * Version: $Id$
  */
- 
+
 #if defined _console_included
  #endinput
 #endif
 #define _console_included
 
 #define INVALID_FCVAR_FLAGS		(-1)
-
-/**
- * Console variable bound values used with Get/SetConVarBounds()
- */
-enum ConVarBounds
-{
-	ConVarBound_Upper = 0,
-	ConVarBound_Lower
-};
 
 /**
  * Console variable query helper values.
@@ -64,49 +55,52 @@ enum ReplySource
 };
 
 /**
- * Console variable query result values.
- */
-enum ConVarQueryResult
-{
-	ConVarQuery_Okay = 0,				/**< Retrieval of client convar value was successful. */
-	ConVarQuery_NotFound,				/**< Client convar was not found. */
-	ConVarQuery_NotValid,				/**< A console command with the same name was found, but there is no convar. */
-	ConVarQuery_Protected				/**< Client convar was found, but it is protected. The server cannot retrieve its value. */
-};
-
-/**
  * @section Flags for console commands and console variables.  The descriptions 
  * for each constant come directly from the Source SDK.
  */
-#define FCVAR_NONE				0		/**< The default, no flags at all */
-#define FCVAR_UNREGISTERED		(1<<0)	/**< If this is set, don't add to linked list, etc. */
-#define FCVAR_LAUNCHER			(1<<1)	/**< Defined by launcher. */
-#define FCVAR_GAMEDLL			(1<<2)	/**< Defined by the game DLL. */
-#define FCVAR_CLIENTDLL			(1<<3)	/**< Defined by the client DLL. */
-#define FCVAR_MATERIAL_SYSTEM	(1<<4)	/**< Defined by the material system. */
-#define FCVAR_PROTECTED			(1<<5)	/**< It's a server cvar, but we don't send the data since it's a password, etc. Sends 1 if it's not bland/zero, 0 otherwise as value. */
-#define FCVAR_SPONLY			(1<<6)	/**< This cvar cannot be changed by clients connected to a multiplayer server. */
-#define	FCVAR_ARCHIVE			(1<<7)	/**< Set to cause it to be saved to vars.rc */
-#define	FCVAR_NOTIFY			(1<<8)	/**< Notifies players when changed. */
-#define	FCVAR_USERINFO			(1<<9)	/**< Changes the client's info string. */
-#define FCVAR_PRINTABLEONLY		(1<<10)	/**< This cvar's string cannot contain unprintable characters (e.g., used for player name, etc.) */
-#define FCVAR_UNLOGGED			(1<<11)	/**< If this is a FCVAR_SERVER, don't log changes to the log file / console if we are creating a log */
-#define FCVAR_NEVER_AS_STRING	(1<<12)	/**< Never try to print that cvar. */
-#define FCVAR_REPLICATED		(1<<13)	/**< Server setting enforced on clients. */
-#define FCVAR_CHEAT				(1<<14)	/**< Only useable in singleplayer / debug / multiplayer & sv_cheats */
-#define FCVAR_STUDIORENDER		(1<<15)	/**< Defined by the studiorender system. */
-#define FCVAR_DEMO				(1<<16)	/**< Record this cvar when starting a demo file. */
-#define FCVAR_DONTRECORD		(1<<17)	/**< Don't record these command in demo files. */
-#define FCVAR_PLUGIN			(1<<18)	/**< Defined by a 3rd party plugin. */
-#define FCVAR_DATACACHE			(1<<19)	/**< Defined by the datacache system. */
-#define FCVAR_TOOLSYSTEM		(1<<20)	/**< Defined by an IToolSystem library */
-#define FCVAR_FILESYSTEM		(1<<21)	/**< Defined by the file system. */
-#define FCVAR_NOT_CONNECTED		(1<<22)	/**< Cvar cannot be changed by a client that is connected to a server. */
-#define FCVAR_SOUNDSYSTEM		(1<<23)	/**< Defined by the soundsystem library. */
-#define FCVAR_ARCHIVE_XBOX		(1<<24)	/**< Cvar written to config.cfg on the Xbox. */
-#define FCVAR_INPUTSYSTEM		(1<<25)	/**< Defined by the inputsystem DLL. */
-#define FCVAR_NETWORKSYSTEM		(1<<26)	/**< Defined by the network system. */
-#define FCVAR_VPHYSICS			(1<<27)	/**< Defined by vphysics. */
+
+#pragma deprecated No logic using this flag ever existed in a released game. It only ever appeared in the first hl2sdk.
+#define FCVAR_PLUGIN           0       // Actual value is same as FCVAR_SS_ADDED in Left 4 Dead and later.
+#pragma deprecated Did you mean FCVAR_DEVELOPMENTONLY? (No logic using this flag ever existed in a released game. It only ever appeared in the first hl2sdk.)
+#define FCVAR_LAUNCHER         (1<<1)  // Same value as FCVAR_DEVELOPMENTONLY, which is what most usages of this were intending to use.
+
+
+#define FCVAR_NONE             0       // The default, no flags at all
+#define FCVAR_UNREGISTERED     (1<<0)  // If this is set, don't add to linked list, etc.
+#define FCVAR_DEVELOPMENTONLY  (1<<1)  // Hidden in released products. Flag is removed automatically if ALLOW_DEVELOPMENT_CVARS is defined. (OB+)
+#define FCVAR_GAMEDLL          (1<<2)  // Defined by the game DLL.
+#define FCVAR_CLIENTDLL        (1<<3)  // Defined by the client DLL.
+#define FCVAR_MATERIAL_SYSTEM  (1<<4)  // Defined by the material system. (EP1-only)
+#define FCVAR_HIDDEN           (1<<4)  // Hidden. Doesn't appear in find or autocomplete. Like DEVELOPMENTONLY, but can't be compiled out.1 (OB+)
+#define FCVAR_PROTECTED        (1<<5)  // It's a server cvar, but we don't send the data since it's a password, etc.
+                                       // Sends 1 if it's not bland/zero, 0 otherwise as value.
+#define FCVAR_SPONLY           (1<<6)  // This cvar cannot be changed by clients connected to a multiplayer server.
+#define FCVAR_ARCHIVE          (1<<7)  // Set to cause it to be saved to vars.rc
+#define FCVAR_NOTIFY           (1<<8)  // Notifies players when changed.
+#define FCVAR_USERINFO         (1<<9)  // Changes the client's info string.
+#define FCVAR_PRINTABLEONLY    (1<<10) // This cvar's string cannot contain unprintable characters (e.g., used for player name, etc.)
+#define FCVAR_UNLOGGED         (1<<11) // If this is a FCVAR_SERVER, don't log changes to the log file / console if we are creating a log
+#define FCVAR_NEVER_AS_STRING  (1<<12) // Never try to print that cvar.
+#define FCVAR_REPLICATED       (1<<13) // Server setting enforced on clients.
+#define FCVAR_CHEAT            (1<<14) // Only useable in singleplayer / debug / multiplayer & sv_cheats
+#define FCVAR_SS               (1<<15) // causes varnameN where N  2 through max splitscreen slots for mod to be autogenerated (L4D+)
+#define FCVAR_DEMO                     (1<<16) // Record this cvar when starting a demo file.
+#define FCVAR_DONTRECORD               (1<<17) // Don't record these command in demo files.
+#define FCVAR_SS_ADDED                 (1<<18) // This is one of the "added" FCVAR_SS variables for the splitscreen players (L4D+)
+#define FCVAR_RELEASE                  (1<<19) // Cvars tagged with this are the only cvars available to customers (L4D+)
+#define FCVAR_RELOAD_MATERIALS         (1<<20) // If this cvar changes, it forces a material reload (OB+)
+#define FCVAR_RELOAD_TEXTURES          (1<<21) // If this cvar changes, if forces a texture reload (OB+)
+#define FCVAR_NOT_CONNECTED            (1<<22) // Cvar cannot be changed by a client that is connected to a server.
+#define FCVAR_MATERIAL_SYSTEM_THREAD   (1<<23) // Indicates this cvar is read from the material system thread (OB+)
+#define FCVAR_ARCHIVE_XBOX             (1<<24) // Cvar written to config.cfg on the Xbox.
+#define FCVAR_ARCHIVE_GAMECONSOLE      (1<<24) // Cvar written to config.cfg on the Xbox.
+#define FCVAR_ACCESSIBLE_FROM_THREADS  (1<<25) // used as a debugging tool necessary to check material system thread convars (OB+)
+#define FCVAR_SERVER_CAN_EXECUTE       (1<<28) // the server is allowed to execute this command on clients via
+                                                   // ClientCommand/NET_StringCmd/CBaseClientState::ProcessStringCmd. (OB+)
+#define FCVAR_SERVER_CANNOT_QUERY      (1<<29) // If this is set, then the server is not allowed to query this cvar's value (via
+                                                   // IServerPluginHelpers::StartQueryCvarValue).
+#define FCVAR_CLIENTCMD_CAN_EXECUTE    (1<<30) // IVEngineClient::ClientCmd is allowed to execute this command. 
+                                                   // Note: IVEngineClient::ClientCmd_Unrestricted can run any client command.
 
 /**
  * @endsection
@@ -195,6 +189,17 @@ native FakeClientCommand(client, const String:fmt[], any:...);
  * @error				Invalid client index, or client not connected.
  */
 native FakeClientCommandEx(client, const String:fmt[], any:...);
+
+/**
+ * Executes a KeyValues client command on the server without being networked.
+ *
+ * @param client		Index of the client.
+ * @param kv			KeyValues data to be sent.
+ * @noreturn
+ * @error				Invalid client index, client not connected,
+ *						or unsupported on current game.
+ */
+native void FakeClientCommandKeyValues(int client, KeyValues kv);
 
 /**
  * Sends a message to the server console.
@@ -328,7 +333,7 @@ native FormatActivitySource(client, target, const String:namebuf[], maxlength);
  * @return				An Action value.  Not handling the command
  *						means that Source will report it as "not found."
  */
-functag public Action:SrvCmd(args);
+typedef SrvCmd = function Action (int args);
 
 /**
  * Creates a server-only console command, or hooks an already existing one.  
@@ -352,7 +357,7 @@ native RegServerCmd(const String:cmd[], SrvCmd:callback, const String:descriptio
  * @return				An Action value.  Not handling the command
  *						means that Source will report it as "not found."
  */
-functag public Action:ConCmd(client, args);
+typedef ConCmd = function Action (int client, int args);
 
 /**
  * Creates a console command, or hooks an already existing one.
@@ -425,293 +430,6 @@ native GetCmdArg(argnum, String:buffer[], maxlength);
 native GetCmdArgString(String:buffer[], maxlength);
 
 /**
- * Creates a new console variable.
- *
- * @param name			Name of new convar.
- * @param defaultValue	String containing the default value of new convar.
- * @param description	Optional description of the convar.
- * @param flags			Optional bitstring of flags determining how the convar should be handled. See FCVAR_* constants for more details.
- * @param hasMin		Optional boolean that determines if the convar has a minimum value.
- * @param min			Minimum floating point value that the convar can have if hasMin is true.
- * @param hasMax		Optional boolean that determines if the convar has a maximum value.
- * @param max			Maximum floating point value that the convar can have if hasMax is true.
- * @return				A handle to the newly created convar. If the convar already exists, a handle to it will still be returned.
- * @error				Convar name is blank or is the same as an existing console command.
- */
-native Handle:CreateConVar(const String:name[], const String:defaultValue[], const String:description[]="", flags=0, bool:hasMin=false, Float:min=0.0, bool:hasMax=false, Float:max=0.0);
-
-/**
- * Searches for a console variable.
- *
- * @param name			Name of convar to find.
- * @return				A handle to the convar if it is found. INVALID_HANDLE otherwise.
- */
-native Handle:FindConVar(const String:name[]);
-
-/**
- * Called when a console variable's value is changed.
- *
- * @param convar		Handle to the convar that was changed.
- * @param oldValue		String containing the value of the convar before it was changed.
- * @param newValue		String containing the new value of the convar.
- * @noreturn
- */
-functag public ConVarChanged(Handle:convar, const String:oldValue[], const String:newValue[]);
-
-/**
- * Creates a hook for when a console variable's value is changed.
- *
- * @param convar		Handle to the convar.
- * @param callback		An OnConVarChanged function pointer.
- * @noreturn
- * @error				Invalid or corrupt Handle or invalid callback function.
- */
-native HookConVarChange(Handle:convar, ConVarChanged:callback);
-
-/**
- * Removes a hook for when a console variable's value is changed.
- *
- * @param convar		Handle to the convar.
- * @param callback		An OnConVarChanged function pointer.
- * @noreturn
- * @error				Invalid or corrupt Handle, invalid callback function, or no active hook on convar.
- */
-native UnhookConVarChange(Handle:convar, ConVarChanged:callback);
-
-/**
- * Returns the boolean value of a console variable.
- *
- * @param convar		Handle to the convar.
- * @return				The boolean value of the convar.
- * @error				Invalid or corrupt Handle.
- */
-native bool:GetConVarBool(Handle:convar);
-
-/**
- * Sets the boolean value of a console variable.
- *
- * Note: The replicate and notify params are only relevant for the original, Dark Messiah, and
- * Episode 1 engines. Newer engines automatically do these things when the convar value is changed.
- *
- * @param convar		Handle to the convar.
- * @param value			New boolean value.
- * @param replicate		If set to true, the new convar value will be set on all clients.
- *						This will only work if the convar has the FCVAR_REPLICATED flag
- *						and actually exists on clients.
- * @param notify		If set to true, clients will be notified that the convar has changed.
- *						This will only work if the convar has the FCVAR_NOTIFY flag.
- * @noreturn
- * @error				Invalid or corrupt Handle.
- */
-native SetConVarBool(Handle:convar, bool:value, bool:replicate=false, bool:notify=false);
-
-/**
- * Returns the integer value of a console variable.
- *
- * @param convar		Handle to the convar.
- * @return				The integer value of the convar.
- * @error				Invalid or corrupt Handle.
- */
-native GetConVarInt(Handle:convar);
-
-/**
- * Sets the integer value of a console variable.
- *
- * Note: The replicate and notify params are only relevant for the original, Dark Messiah, and
- * Episode 1 engines. Newer engines automatically do these things when the convar value is changed.
- *
- * @param convar		Handle to the convar.
- * @param value			New integer value.
- * @param replicate		If set to true, the new convar value will be set on all clients.
- *						This will only work if the convar has the FCVAR_REPLICATED flag
- *						and actually exists on clients.
- * @param notify		If set to true, clients will be notified that the convar has changed.
- *						This will only work if the convar has the FCVAR_NOTIFY flag.
- * @noreturn
- * @error				Invalid or corrupt Handle.
- */
-native SetConVarInt(Handle:convar, value, bool:replicate=false, bool:notify=false);
-
-/**
- * Returns the floating point value of a console variable.
- *
- * @param convar		Handle to the convar.
- * @return				The floating point value of the convar.
- * @error				Invalid or corrupt Handle.
- */
-native Float:GetConVarFloat(Handle:convar);
-
-/**
- * Sets the floating point value of a console variable.
- *
- * Note: The replicate and notify params are only relevant for the original, Dark Messiah, and
- * Episode 1 engines. Newer engines automatically do these things when the convar value is changed.
- *
- * @param convar		Handle to the convar.
- * @param value			New floating point value.
- * @param replicate		If set to true, the new convar value will be set on all clients.
- *						This will only work if the convar has the FCVAR_REPLICATED flag
- *						and actually exists on clients.
- * @param notify		If set to true, clients will be notified that the convar has changed.
- *						This will only work if the convar has the FCVAR_NOTIFY flag.
- * @noreturn
- * @error				Invalid or corrupt Handle.
- */
-native SetConVarFloat(Handle:convar, Float:value, bool:replicate=false, bool:notify=false);
-
-/**
- * Retrieves the string value of a console variable.
- *
- * @param convar		Handle to the convar.
- * @param value			Buffer to store the value of the convar.
- * @param maxlength		Maximum length of string buffer.
- * @noreturn
- * @error				Invalid or corrupt Handle.     
- */
-native GetConVarString(Handle:convar, String:value[], maxlength);
-
-/**
- * Sets the string value of a console variable.
- *
- * Note: The replicate and notify params are only relevant for the original, Dark Messiah, and
- * Episode 1 engines. Newer engines automatically do these things when the convar value is changed.
- *
- * @param convar		Handle to the convar.
- * @param value			New string value.
- * @param replicate		If set to true, the new convar value will be set on all clients.
- *						This will only work if the convar has the FCVAR_REPLICATED flag
- *						and actually exists on clients.
- * @param notify		If set to true, clients will be notified that the convar has changed.
- *						This will only work if the convar has the FCVAR_NOTIFY flag.
- * @noreturn
- * @error				Invalid or corrupt Handle.
- */
-native SetConVarString(Handle:convar, const String:value[], bool:replicate=false, bool:notify=false);
-
-/**
- * Resets the console variable to its default value.
- *
- * Note: The replicate and notify params are only relevant for the original, Dark Messiah, and
- * Episode 1 engines. Newer engines automatically do these things when the convar value is changed.
- *
- * @param convar		Handle to the convar.
- * @param replicate		If set to true, the new convar value will be set on all clients.
- *						This will only work if the convar has the FCVAR_REPLICATED flag
- *						and actually exists on clients.
- * @param notify		If set to true, clients will be notified that the convar has changed.
- *						This will only work if the convar has the FCVAR_NOTIFY flag.
- * @noreturn
- * @error				Invalid or corrupt Handle.
- */
-native ResetConVar(Handle:convar, bool:replicate=false, bool:notify=false);
-
-/**
- * Retrieves the default string value of a console variable.
- *
- * @param convar		Handle to the convar.
- * @param value			Buffer to store the default value of the convar.
- * @param maxlength		Maximum length of string buffer.
- * @return				Number of bytes written to the buffer (UTF-8 safe).
- * @error				Invalid or corrupt Handle.
- */
-native GetConVarDefault(Handle:convar, String:value[], maxlength);
-
-/**
- * Returns the bitstring of flags on a console variable.
- *
- * @param convar		Handle to the convar.
- * @return				A bitstring containing the FCVAR_* flags that are enabled.
- * @error				Invalid or corrupt Handle.
- */
-native GetConVarFlags(Handle:convar);
-
-/**
- * Sets the bitstring of flags on a console variable.
- *
- * @param convar		Handle to the convar.
- * @param flags			A bitstring containing the FCVAR_* flags to enable.
- * @noreturn
- * @error				Invalid or corrupt Handle.
- */
-native SetConVarFlags(Handle:convar, flags);
-
-/**
- * Retrieves the specified bound of a console variable.
- *
- * @param convar		Handle to the convar.
- * @param type			Type of bound to retrieve, ConVarBound_Lower or ConVarBound_Upper.
- * @param value			By-reference cell to store the specified floating point bound value.
- * @return				True if the convar has the specified bound set, false otherwise.
- * @error				Invalid or corrupt Handle.
- */
-native bool:GetConVarBounds(Handle:convar, ConVarBounds:type, &Float:value);
-
-/**
- * Sets the specified bound of a console variable.
- *
- * @param convar		Handle to the convar.
- * @param type			Type of bound to set, ConVarBound_Lower or ConVarBound_Upper
- * @param set			If set to true, convar will use specified bound. If false, bound will be removed.
- * @param value			Floating point value to use as the specified bound.
- * @noreturn
- * @error				Invalid or corrupt Handle.
- */
-native SetConVarBounds(Handle:convar, ConVarBounds:type, bool:set, Float:value=0.0);
-
-/**
- * Retrieves the name of a console variable.
- *
- * @param convar		Handle to the convar.
- * @param name			Buffer to store the name of the convar.
- * @param maxlength		Maximum length of string buffer.
- * @noreturn
- * @error				Invalid or corrupt Handle.     
- */
-native GetConVarName(Handle:convar, String:name[], maxlength);
-
-funcenum ConVarQueryFinished
-{	
-	/**
-	 * Called when a query to retrieve a client's console variable has finished.
-	 *
-	 * @param cookie		Unique identifier of query.
-	 * @param client		Player index.
-	 * @param result		Result of query that tells one whether or not query was successful.
-	 *						See ConVarQueryResult enum for more details.
-	 * @param convarName	Name of client convar that was queried.
-	 * @param convarValue	Value of client convar that was queried if successful. This will be "" if it was not.
-	 * @param value			Value that was passed when query was started.
-	 * @noreturn
-	 */
-	public(QueryCookie:cookie, client, ConVarQueryResult:result, const String:cvarName[], const String:cvarValue[], any:value),
-	
-	/**
-	 * Called when a query to retrieve a client's console variable has finished.
-	 *
-	 * @param cookie		Unique identifier of query.
-	 * @param client		Player index.
-	 * @param result		Result of query that tells one whether or not query was successful.
-	 *						See ConVarQueryResult enum for more details.
-	 * @param convarName	Name of client convar that was queried.
-	 * @param convarValue	Value of client convar that was queried if successful. This will be "" if it was not.
-	 * @noreturn
-	 */
-	public(QueryCookie:cookie, client, ConVarQueryResult:result, const String:cvarName[], const String:cvarValue[])
-};
-
-/**
- * Starts a query to retrieve the value of a client's console variable.
- *
- * @param client		Player index.
- * @param cvarName			Name of client convar to query.
- * @param callback		A function to use as a callback when the query has finished.
- * @param value			Optional value to pass to the callback function.
- * @return				A cookie that uniquely identifies the query. 
- *						Returns QUERYCOOKIE_FAILED on failure, such as when used on a bot.
- */
-native QueryCookie:QueryClientConVar(client, const String:cvarName[], ConVarQueryFinished:callback, any:value=0);
-
-/**
  * Gets a command iterator.  Must be freed with CloseHandle().
  *
  * @return				A new command iterator.
@@ -782,17 +500,6 @@ native bool:CheckAccess(AdminId:id,
 							   bool:override_only=false);
 
 /**
- * Returns true if the supplied character is valid in a ConVar name.
- *
- * @param c			Character to validate.
- * @return			True is valid for ConVars, false otherwise
- */
-stock bool:IsValidConVarChar(c)
-{
-	return (c == '_' || IsCharAlpha(c) || IsCharNumeric(c));
-}
-
-/**
  * Returns the bitstring of flags of a command.
  *
  * @param name		Name of the command.
@@ -851,17 +558,6 @@ native Handle:FindFirstConCommand(String:buffer[], max_size, &bool:isCommand, &f
 native bool:FindNextConCommand(Handle:search, String:buffer[], max_size, &bool:isCommand, &flags=0, String:description[]="", descrmax_size=0);
 
 /**
- * Replicates a convar value to a specific client. This does not change the actual convar value.
- *
- * @param client		Client index
- * @param convar		ConVar handle
- * @param value			String value to send
- * @return				True on success, false on failure
- * @error 				Invalid client index, client not in game, or client is fake
- */
-native bool:SendConVarValue(client, Handle:convar, const String:value[]);
-
-/**
  * Adds an informational string to the server's public "tags".
  * This string should be a short, unique identifier.
  *
@@ -905,7 +601,7 @@ native RemoveServerTag(const String:tag[]);
  * @param argc          Argument count.
  * @return				Action to take (see extended notes above).
  */
-functag public Action:CommandListener(client, const String:command[], argc);
+typedef CommandListener = function Action (int client, const char[] command, int argc);
 
 #define FEATURECAP_COMMANDLISTENER  "command listener"
 
@@ -968,4 +664,4 @@ forward Action:OnClientSayCommand(client, const String:command[], const String:s
  * @param sArgs			Chat argument string.
  * 
  */
-forward OnClientSayCommand_Post(client, const String:command[], const String:sArgs[]);
+forward void OnClientSayCommand_Post(int client, const char[] command, const char[] sArgs);

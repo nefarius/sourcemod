@@ -183,7 +183,7 @@ public: //IAdminSystem
 	bool IsValidAdmin(AdminId id);
 	bool CheckClientCommandAccess(int client, const char *cmd, FlagBits cmdflags);
 public:
-	void DumpCache(FILE *fp);
+	bool DumpCache(const char *filename);
 	AdminGroup *GetGroup(GroupId gid);
 	AdminUser *GetUser(AdminId id);
 	const char *GetString(int idx);
@@ -198,6 +198,7 @@ private:
 	bool GetMethodIndex(const char *name, unsigned int *_index);
 	const char *GetMethodName(unsigned int index);
 	void NameFlag(const char *str, AdminFlag flag);
+	bool GetUnifiedSteamIdentity(const char *ident, char *out, size_t maxlen);
 public:
 	typedef StringHashMap<FlagBits> FlagMap;
 

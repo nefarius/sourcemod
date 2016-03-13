@@ -61,9 +61,21 @@ DETOUR_DECL_MEMBER1(DetourHandleBuy, int, const char *, weapon)
 
 #if SOURCE_ENGINE != SE_CSGO
 DETOUR_DECL_MEMBER0(DetourWeaponPrice, int)
+#elif defined(WIN32)
+DETOUR_DECL_MEMBER2(DetourWeaponPrice, int, CEconItemView *, pEconItem, int, iUnknown)
+#else
+DETOUR_DECL_MEMBER3(DetourWeaponPrice, int, CEconItemView *, pEconItem, int, iUnknown, float, fUnknown)
+#endif
 {
-	int price = DETOUR_MEMBER_CALL(DetourWeaponPrice)();
 
+#if SOURCE_ENGINE != SE_CSGO
+	int price = DETOUR_MEMBER_CALL(DetourWeaponPrice)();
+#elif defined(WIN32)
+	int price = DETOUR_MEMBER_CALL(DetourWeaponPrice)(pEconItem, iUnknown);
+#else
+	int price = DETOUR_MEMBER_CALL(DetourWeaponPrice)(pEconItem, iUnknown, fUnknown);
+#endif
+	
 	if (lastclient == -1)
 		return price;
 
@@ -71,19 +83,6 @@ DETOUR_DECL_MEMBER0(DetourWeaponPrice, int)
 
 	return CallPriceForward(lastclient, weapon_name, price);
 }
-#else
-DETOUR_DECL_MEMBER2(DetourWeaponPrice, int, const char *, szAttribute, CEconItemView *, pEconItem)
-{
-	int price = DETOUR_MEMBER_CALL(DetourWeaponPrice)(szAttribute, pEconItem);
-
-	if(lastclient == -1 || strcmp(szAttribute, "in game price") != 0)
-		return price;
-
-	const char *weapon_name = reinterpret_cast<char *>(this+weaponNameOffset);
-
-	return CallPriceForward(lastclient, weapon_name, price);
-}
-#endif
 
 #if SOURCE_ENGINE != SE_CSGO || !defined(WIN32)
 DETOUR_DECL_MEMBER2(DetourTerminateRound, void, float, delay, int, reason)
@@ -96,11 +95,10 @@ DETOUR_DECL_MEMBER2(DetourTerminateRound, void, float, delay, int, reason)
 	}
 #else
 //Windows CSGO
-//char __userpurge TerminateRound<al>(unsigned int a1<ecx>, signed int a2<edi>, unsigned int a3<xmm1>, int a4)
+//char __userpurge TerminateRound(int a1@<ecx>, float a2@<xmm1>, int *a3)
 // a1 - this
-// a2 - unknown
-// a3 - delay
-// a4 - reason
+// a2 - delay
+// a3 - reason
 DETOUR_DECL_MEMBER1(DetourTerminateRound, void, int, reason)
 {
 	float delay;
@@ -123,6 +121,10 @@ DETOUR_DECL_MEMBER1(DetourTerminateRound, void, int, reason)
 
 	cell_t result = Pl_Continue;
 
+#if SOURCE_ENGINE == SE_CSGO
+	reason--;
+#endif
+	
 	g_pTerminateRoundForward->PushFloatByRef(&delay);
 	g_pTerminateRoundForward->PushCellByRef(&reason);
 	g_pTerminateRoundForward->Execute(&result);
@@ -130,6 +132,10 @@ DETOUR_DECL_MEMBER1(DetourTerminateRound, void, int, reason)
 	if (result >= Pl_Handled)
 		return;
 
+#if SOURCE_ENGINE == SE_CSGO
+	reason++;
+#endif
+	
 #if SOURCE_ENGINE != SE_CSGO || !defined(WIN32)
 	if (result == Pl_Changed)
 		return DETOUR_MEMBER_CALL(DetourTerminateRound)(delay, reason);
@@ -152,12 +158,20 @@ DETOUR_DECL_MEMBER1(DetourTerminateRound, void, int, reason)
 #endif
 }
 
-DETOUR_DECL_MEMBER3(DetourCSWeaponDrop, void, CBaseEntity *, weapon, bool, something, bool, toss)
+#if SOURCE_ENGINE == SE_CSGO
+DETOUR_DECL_MEMBER3(DetourCSWeaponDrop, void, CBaseEntity *, weapon, Vector, vec, bool, unknown)
+#else
+DETOUR_DECL_MEMBER3(DetourCSWeaponDrop, void, CBaseEntity *, weapon, bool, bDropShield, bool, bThrowForward)
+#endif
 {
 	if (g_pIgnoreCSWeaponDropDetour)
 	{
 		g_pIgnoreCSWeaponDropDetour = false;
-		DETOUR_MEMBER_CALL(DetourCSWeaponDrop)(weapon, something, toss);
+#if SOURCE_ENGINE == SE_CSGO
+		DETOUR_MEMBER_CALL(DetourCSWeaponDrop)(weapon, vec, unknown);
+#else
+		DETOUR_MEMBER_CALL(DetourCSWeaponDrop)(weapon, bDropShield, bThrowForward);
+#endif
 		return;
 	}
 
@@ -171,7 +185,13 @@ DETOUR_DECL_MEMBER3(DetourCSWeaponDrop, void, CBaseEntity *, weapon, bool, somet
 
 
 	if (result == Pl_Continue)
-		DETOUR_MEMBER_CALL(DetourCSWeaponDrop)(weapon, something, toss);
+	{
+#if SOURCE_ENGINE == SE_CSGO
+		DETOUR_MEMBER_CALL(DetourCSWeaponDrop)(weapon, vec, unknown);
+#else
+		DETOUR_MEMBER_CALL(DetourCSWeaponDrop)(weapon, bDropShield, bThrowForward);
+#endif
+	}
 
 	return;
 }
@@ -187,8 +207,15 @@ bool CreateWeaponPriceDetour()
 		}
 	}
 
-#if SOURCE_ENGINE == SE_CSGO
-	DWeaponPrice = DETOUR_CREATE_MEMBER(DetourWeaponPrice, "GetAttributeInt");
+#if SOURCE_ENGINE == SE_CSGO && defined(WIN32)
+	void *pGetWeaponPriceAddress = GetWeaponPriceFunction();
+
+	if(!pGetWeaponPriceAddress)
+	{
+		g_pSM->LogError(myself, "GetWeaponPrice detour could not be initialized - Disabled OnGetWeaponPrice forward.");
+	}
+
+	DWeaponPrice = DETOUR_CREATE_MEMBER(DetourWeaponPrice, pGetWeaponPriceAddress);
 #else
 	DWeaponPrice = DETOUR_CREATE_MEMBER(DetourWeaponPrice, "GetWeaponPrice");
 #endif

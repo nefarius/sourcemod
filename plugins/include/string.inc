@@ -207,7 +207,7 @@ native IntToString(num, String:str[], maxlength);
 /** 
  * Converts a string to a floating point number.
  *
- * @param str			String to convert to a foat.
+ * @param str			String to convert to a float.
  * @return				Floating point result, or 0.0 on error.
  */
 native Float:StringToFloat(const String:str[]);
@@ -215,7 +215,7 @@ native Float:StringToFloat(const String:str[]);
 /** 
  * Converts a string to a floating point number with some more options.
  *
- * @param str			String to convert to a foat.
+ * @param str			String to convert to a float.
  * @param result		Variable to store result in.
  * @return				Number of characters consumed.
  */
@@ -394,7 +394,7 @@ native bool:StripQuotes(String:text[]);
 /**
  * Returns an uppercase character to a lowercase character.
  *
- * @param chr			Characer to convert.
+ * @param chr			Character to convert.
  * @return				Lowercase character on success, 
  *						no change on failure.
  */
@@ -410,7 +410,7 @@ stock CharToUpper(chr)
 /**
  * Returns a lowercase character to an uppercase character.
  *
- * @param chr			Characer to convert.
+ * @param chr			Character to convert.
  * @return				Uppercase character on success, 
  *						no change on failure.
  */
@@ -433,30 +433,19 @@ stock CharToLower(chr)
  * @return				The index of the first occurrence of the character 
  * 						in the string, or -1 if the character was not found.
  */
-stock FindCharInString(const String:str[], c, bool:reverse = false)
+stock int FindCharInString(const char[] str, char c, bool reverse = false)
 {
-	new i, len
-
-	len = strlen(str);
+	int len = strlen(str);
 	
-	if (!reverse)
-	{
-		for (i = 0; i < len; i++)
-		{
+	if (!reverse) {
+		for (int i = 0; i < len; i++) {
 			if (str[i] == c)
-			{
 				return i;
-			}
 		}
-	}
-	else
-	{
-		for (i = len - 1; i >= 0; i--)
-		{
+	} else {
+		for (int i = len - 1; i >= 0; i--) {
 			if (str[i] == c)
-			{
 				return i;
-			}
 		}
 	}
 

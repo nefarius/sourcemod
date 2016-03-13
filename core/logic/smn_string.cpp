@@ -35,6 +35,8 @@
 #include <ITextParsers.h>
 #include <ctype.h>
 #include "stringutil.h"
+#include "sprintf.h"
+#include <am-string.h>
 
 inline const char *_strstr(const char *str, const char *substr)
 {
@@ -141,7 +143,7 @@ static cell_t sm_numtostr(IPluginContext *pCtx, const cell_t *params)
 {
 	char *str;
 	pCtx->LocalToString(params[2], &str);
-	size_t res = smcore.Format(str, params[3], "%d", params[1]);
+	size_t res = ke::SafeSprintf(str, params[3], "%d", params[1]);
 
 	return static_cast<cell_t>(res);
 }
@@ -174,7 +176,7 @@ static cell_t sm_floattostr(IPluginContext *pCtx, const cell_t *params)
 {
 	char *str;
 	pCtx->LocalToString(params[2], &str);
-	size_t res = smcore.Format(str, params[3], "%f", sp_ctof(params[1]));
+	size_t res = ke::SafeSprintf(str, params[3], "%f", sp_ctof(params[1]));
 
 	return static_cast<cell_t>(res);
 }
@@ -187,7 +189,7 @@ static cell_t sm_formatex(IPluginContext *pCtx, const cell_t *params)
 
 	pCtx->LocalToString(params[1], &buf);
 	pCtx->LocalToString(params[3], &fmt);
-	res = smcore.atcprintf(buf, static_cast<size_t>(params[2]), fmt, pCtx, params, &arg);
+	res = atcprintf(buf, static_cast<size_t>(params[2]), fmt, pCtx, params, &arg);
 
 	return static_cast<cell_t>(res);
 }
@@ -256,7 +258,7 @@ static cell_t sm_format(IPluginContext *pCtx, const cell_t *params)
 	}
 
 	buf = (copy) ? __copy_buf : destbuf;
-	res = smcore.atcprintf(buf, maxlen, fmt, pCtx, params, &arg);
+	res = atcprintf(buf, maxlen, fmt, pCtx, params, &arg);
 
 	if (copy)
 	{
@@ -306,7 +308,7 @@ static cell_t sm_vformat(IPluginContext *pContext, const cell_t *params)
 
 	pContext->LocalToString(params[3], &format);
 
-	size_t total = smcore.atcprintf(destination, maxlen, format, pContext, local_params, &vargPos);
+	size_t total = atcprintf(destination, maxlen, format, pContext, local_params, &vargPos);
 
 	/* Perform copy-on-write if we need to */
 	if (copy)
@@ -423,7 +425,7 @@ static cell_t IsCharAlpha(IPluginContext *pContext, const cell_t *params)
 		return 0;
 	}
 
-	return isalpha(chr);
+	return isalpha(chr) == 0 ? 0 : 1;
 }
 
 static cell_t IsCharNumeric(IPluginContext *pContext, const cell_t *params)
@@ -435,7 +437,7 @@ static cell_t IsCharNumeric(IPluginContext *pContext, const cell_t *params)
 		return 0;
 	}
 
-	return isdigit(chr);
+	return isdigit(chr) == 0 ? 0 : 1;
 }
 
 static cell_t IsCharSpace(IPluginContext *pContext, const cell_t *params)
@@ -447,7 +449,7 @@ static cell_t IsCharSpace(IPluginContext *pContext, const cell_t *params)
 		return 0;
 	}
 
-	return isspace(chr);
+	return isspace(chr) == 0 ? 0 : 1;
 }
 
 static cell_t IsCharMB(IPluginContext *pContext, const cell_t *params)
@@ -472,7 +474,7 @@ static cell_t IsCharUpper(IPluginContext *pContext, const cell_t *params)
 		return 0;
 	}
 
-	return isupper(chr);
+	return isupper(chr) == 0 ? 0 : 1;
 }
 
 static cell_t IsCharLower(IPluginContext *pContext, const cell_t *params)
@@ -484,7 +486,7 @@ static cell_t IsCharLower(IPluginContext *pContext, const cell_t *params)
 		return 0;
 	}
 
-	return islower(chr);
+	return islower(chr) == 0 ? 0 : 1;
 }
 
 static cell_t ReplaceString(IPluginContext *pContext, const cell_t *params)

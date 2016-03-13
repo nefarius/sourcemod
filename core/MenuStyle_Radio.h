@@ -41,6 +41,8 @@
 #include "sm_fastlink.h"
 #include <sh_stack.h>
 #include <compat_wrappers.h>
+#include "logic/common_logic.h"
+#include "AutoHandleRooter.h"
 
 using namespace SourceMod;
 
@@ -101,7 +103,6 @@ public:
 	CRadioDisplay *MakeRadioDisplay(CRadioMenu *menu=NULL);
 	void FreeRadioDisplay(CRadioDisplay *display);
 	CRadioMenuPlayer *GetRadioMenuPlayer(int client);
-	IMenuPanel *MakeRadioDisplay(const char *str, int keys);
 private:
 	CRadioMenuPlayer *m_players;
 	CStack<CRadioDisplay *> m_FreeDisplays;
@@ -129,8 +130,7 @@ public: //IMenuPanel
 	bool SetCurrentKey(unsigned int key);
 	int GetAmountRemaining();
 	unsigned int GetApproxMemUsage();
-public:
-	void DirectSet(const char *str, int keymap);
+	bool DirectSet(const char *str);
 private:
 	String m_BufferText;
 	String m_Title;

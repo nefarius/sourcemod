@@ -99,7 +99,7 @@ native LogError(const String:format[], any:...);
  * @param client		Client the action is from; 0 for server, -1 if not applicable.
  * @param target		Client the action is targetting, or -1 if not applicable.
  * @param message		Message that is being logged.
- * @return				Plugin_Continue will cause Core to defaulty log the message.
+ * @return				Plugin_Continue will perform the default logging behavior.
  *						Plugin_Handled will stop Core from logging the message.
  * 						Plugin_Stop is the same as Handled, but prevents any other 
  *						plugins from handling the message.
@@ -123,7 +123,7 @@ forward Action:OnLogAction(Handle:source,
  * @return				Plugin_Handled or Plugin_Stop will prevent the message 
  * 						from being written to the log file.
  */
-functag public Action:GameLogHook(const String:message[]);
+typedef GameLogHook = function Action (const char[] message);
 
 /**
  * Adds a game log hook.

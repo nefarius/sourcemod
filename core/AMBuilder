@@ -9,8 +9,6 @@ project.sources += [
   'sm_stringutil.cpp',
   'MenuVoting.cpp',
   'smn_events.cpp',
-  'smn_menus.cpp',
-  'CDataPack.cpp',
   'frame_hooks.cpp',
   'smn_nextmap.cpp',
   'sourcemm_api.cpp',
@@ -22,7 +20,6 @@ project.sources += [
   'NextMap.cpp',
   'ConCmdManager.cpp',
   'ConVarManager.cpp',
-  'LibrarySys.cpp',
   'PlayerManager.cpp',
   'TimerSys.cpp',
   'CoreConfig.cpp',
@@ -31,7 +28,6 @@ project.sources += [
   'smn_console.cpp',
   'UserMessages.cpp',
   'MenuManager.cpp',
-  'smn_core.cpp',
   'smn_hudtext.cpp',
   'smn_usermsgs.cpp',
   'MenuStyle_Base.cpp',
@@ -40,8 +36,10 @@ project.sources += [
   'EventManager.cpp',
   'MenuStyle_Radio.cpp',
   'sm_autonatives.cpp',
-  'sm_srvcmds.cpp',
-  'ConsoleDetours.cpp'
+  'ConsoleDetours.cpp',
+  'vprof_tool.cpp',
+  'smn_commandline.cpp',
+  'GameHooks.cpp',
 ]
 
 for sdk_name in SM.sdks:
@@ -51,18 +49,19 @@ for sdk_name in SM.sdks:
   binary = SM.HL2Config(project, binary_name, sdk)
   compiler = binary.compiler
 
+  compiler.cxxincludes += [
+    builder.sourcePath
+  ]
+
   if sdk.name == 'csgo':
-    # Protobuf 2.3 headers have some signed/unsigned compares. I believe that it's fixed in later versions, but Valve.
-    if compiler.cxx.behavior == 'gcc':
-      compiler.cflags += ['-Wno-sign-compare']
     compiler.cxxincludes += [
-      os.path.join(sdk.path, 'common', 'protobuf-2.3.0', 'src'),
+      os.path.join(sdk.path, 'common', 'protobuf-2.5.0', 'src'),
       os.path.join(sdk.path, 'public', 'engine', 'protobuf'),
       os.path.join(sdk.path, 'public', 'game', 'shared', 'csgo', 'protobuf')
     ]
   elif sdk.name == 'dota':
     compiler.cxxincludes += [
-      os.path.join(sdk.path, 'common', 'protobuf-2.4.1', 'src'),
+      os.path.join(sdk.path, 'common', 'protobuf-2.6.1', 'src'),
       os.path.join(sdk.path, 'public', 'engine', 'protobuf'),
       os.path.join(sdk.path, 'public', 'game', 'shared', 'protobuf'),
       os.path.join(sdk.path, 'public', 'game', 'shared', 'dota', 'protobuf')
@@ -81,12 +80,8 @@ for sdk_name in SM.sdks:
       vs_year = ''
       if msvc_ver == 1800:
         vs_year = '2013'
-      elif msvc_ver == 1700:
-        vs_year = '2012'
-      elif msvc_ver == 1600:
-        vs_year = '2010'
       else:
-        raise Exception('Cannot find libprotobuf for MSVC version "' + compiler.version + '"')
+        raise Exception('Cannot find libprotobuf for MSVC version "' + str(compiler.version) + '"')
 
       if 'DEBUG' in compiler.defines:
         lib_path = os.path.join(sdk.path, 'lib', 'win32', 'debug', 'vs' + vs_year, 'libprotobuf.lib')
@@ -109,6 +104,7 @@ for sdk_name in SM.sdks:
     binary.sources += [
       os.path.join(sdk.path, 'public', 'engine', 'protobuf', 'networkbasetypes.pb.cc'),
       os.path.join(sdk.path, 'public', 'engine', 'protobuf', 'netmessages.pb.cc'),
+      os.path.join(sdk.path, 'public', 'engine', 'protobuf', 'network_connection.pb.cc'),
       os.path.join(sdk.path, 'public', 'game', 'shared', 'protobuf', 'ai_activity.pb.cc'),
       os.path.join(sdk.path, 'public', 'game', 'shared', 'protobuf', 'usermessages.pb.cc'),
       os.path.join(sdk.path, 'public', 'game', 'shared', 'dota', 'protobuf', 'dota_commonmessages.pb.cc'),

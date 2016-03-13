@@ -32,7 +32,7 @@
 			"Disguise"
 			{
 				"library"	"server"
-				"windows"	"\x55\x8B\xEC\x51\x53\x8B\xD9\x56\x8B\x8B"
+				"windows"	"\x55\x8B\xEC\x51\x56\x57\x8B\xF9\x8B\x8F\x2A\x2A\x2A\x2A\xE8\x2A\x2A\x2A\x2A\x8B\x97\x2A\x2A\x2A\x2A\x8B\xF0"
 				"linux"		"@_ZN15CTFPlayerShared8DisguiseEiiP9CTFPlayerb"
 				"mac"		"@_ZN15CTFPlayerShared8DisguiseEiiP9CTFPlayerb"
 			}
@@ -46,14 +46,14 @@
 			"AddCondition"
 			{
 				"library"	"server"
-				"windows"	"\x55\x8B\xEC\x56\x8B\xF1\x8B\x8E\x2A\x2A\x2A\x2A\x85\xC9\x0F\x84"
+				"windows"	"\x55\x8B\xEC\x83\xEC\x08\x56\x8B\xF1\x8B\x8E\x2A\x2A\x2A\x2A\x85\xC9\x0F\x84\x2A\x2A\x2A\x2A\x8B\x01\x8B"
 				"linux"		"@_ZN15CTFPlayerShared7AddCondE7ETFCondfP11CBaseEntity"
 				"mac"		"@_ZN15CTFPlayerShared7AddCondE7ETFCondfP11CBaseEntity"
 			}
 			"RemoveCondition"
 			{
 				"library"	"server"
-				"windows"	"\x55\x8B\xEC\x53\x56\x8B\x75\x08\x57\x8B\xF9\x83\xFE\x40"
+				"windows"	"\x55\x8B\xEC\x56\x57\x8B\x7D\x08\x8B\xF1\x57\xE8\x2A\x2A\x2A\x2A\x84\xC0\x0F\x84"
 				"linux"		"@_ZN15CTFPlayerShared10RemoveCondE7ETFCondb"
 				"mac"		"@_ZN15CTFPlayerShared10RemoveCondE7ETFCondb"
 			}
@@ -74,23 +74,16 @@
 			"StunPlayer"
 			{
 				"library"	"server"
-				"windows"	"\x55\x8B\xEC\x83\xEC\x28\x57\x8B\xF9\x8B\x87"
+				"windows"	"\x55\x8B\xEC\x83\xEC\x24\x57\x8B\xF9\x8B\x87\xFC\x03\x00\x00"
 				"linux"		"@_ZN15CTFPlayerShared10StunPlayerEffiP9CTFPlayer"
 				"mac"		"@_ZN15CTFPlayerShared10StunPlayerEffiP9CTFPlayer"
-			}
-			"IsHolidayActive"
-			{
-				"library"	"server"
-				"windows"	"\x55\x8B\xEC\xA1\x2A\x2A\x2A\x2A\x83\x78\x30\x00\x74\x04\x32\xC0"
-				"linux"		"@_Z18TF_IsHolidayActivei"
-				"mac"		"@_Z18TF_IsHolidayActivei"
 			}
 			"MakeBleed"
 			{
 				"library" 	"server"
-				"windows"	"\x55\x8B\xEC\x83\xEC\x20\x56\x8B\xF1\x89\x75\xF8"
-				"linux"		"@_ZN15CTFPlayerShared9MakeBleedEP9CTFPlayerP13CTFWeaponBasefi"
-				"mac"		"@_ZN15CTFPlayerShared9MakeBleedEP9CTFPlayerP13CTFWeaponBasefi"
+				"windows"	"\x55\x8B\xEC\x83\xEC\x24\x56\x8B\xF1\x89\x75\xF8\x8B\x8E\x2A\x2A\x2A\x2A\x8B\x01"
+				"linux"		"@_ZN15CTFPlayerShared9MakeBleedEP9CTFPlayerP13CTFWeaponBasefib"
+				"mac"		"@_ZN15CTFPlayerShared9MakeBleedEP9CTFPlayerP13CTFWeaponBasefib"
 			}
 			"IsPlayerInDuel"
 			{
@@ -102,31 +95,77 @@
 			"CanPlayerTeleport"
 			{
 				"library"	"server"
-				"windows"	"\x55\x8B\xEC\x53\x8B\x5D\x08\x57\x8B\xF9\x85\xDB\x74\x78"
+				"windows"	"\x55\x8B\xEC\x53\x57\x8B\x7D\x08\x8B\xD9\x85\xFF\x75\x2A\x5F\x32\xC0\x5B\x5D\xC2\x04\x00"
 				"linux"		"@_ZN17CObjectTeleporter21PlayerCanBeTeleportedEP9CTFPlayer"
 				"mac"		"@_ZN17CObjectTeleporter21PlayerCanBeTeleportedEP9CTFPlayer"
+			}
+			
+			// Obsolete
+			"IsHolidayActive"
+			{
+				"library"	"server"
+				"windows"	"\x55\x8B\xEC\xA1\x2A\x2A\x2A\x2A\x83\x78\x30\x00\x74\x04\x32\xC0"
+				"linux"		"@_Z18TF_IsHolidayActivei"
+				"mac"		"@_Z18TF_IsHolidayActivei"
 			}
 		}
 		"Offsets"
 		{
 			"ForceRespawn"
 			{
-				"windows"	"324"
-				"linux"		"325"
-				"mac"		"325"
+				"windows"	"326"
+				"linux"		"327"
+				"mac"		"327"
 			}
 			"CalcIsAttackCriticalHelper"
 			{
-				"windows"	"381"
-				"linux"		"388"
-				"mac"		"388"
+				"windows"	"386"
+				"linux"		"393"
+				"mac"		"393"
 			}
 			"CalcIsAttackCriticalHelperNoCrits"
 			{
-				"windows"	"382"
-				"linux"		"389"
-				"mac"		"389"
+				"windows"	"387"
+				"linux"		"394"
+				"mac"		"394"
 			}
+			
+			// CTFGameRules::IsHolidayActive
+			"IsHolidayActive"
+			{
+				"windows"	"139"
+				"linux"		"140"
+				"mac"		"140"
+			}
+
+			"RemoveWearable"
+			{
+				"windows"	"428"
+				"linux"		"429"
+				"mac"		"429"
+			}
+		}
+	}
+	
+	/*
+	 * TF2 Holiday index values. Formerly SM TFHoliday enum.
+	 */
+	"tf"
+	{
+		"Keys"
+		{
+			"TFHoliday_Birthday"		"1"
+			"TFHoliday_Halloween"		"2"
+			"TFHoliday_Christmas"		"3"
+			"TFHoliday_CommunityUpdate"	"4"
+			"TFHoliday_EndOfTheLine"	"5"
+			"TFHoliday_ValentinesDay"	"6"
+			"TFHoliday_MeetThePyro"		"7"
+			"TFHoliday_SpyVsEngyWar"	"8"
+			"TFHoliday_FullMoon"		"9"
+			"TFHoliday_HalloweenOrFullMoon"				"10"
+			"TFHoliday_HalloweenOrFullMoonOrValentines"	"11"
+			"TFHoliday_AprilFools"		"12"
 		}
 	}
 }

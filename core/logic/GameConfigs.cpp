@@ -39,9 +39,13 @@
 #include <IHandleSys.h>
 #include <IMemoryUtils.h>
 #include <ISourceMod.h>
+#include <IRootConsoleMenu.h>
 #include "common_logic.h"
 #include "sm_crc32.h"
 #include "MemoryUtils.h"
+#include <am-string.h>
+#include <bridge/include/ILogger.h>
+#include <bridge/include/CoreProvider.h>
 
 #if defined PLATFORM_POSIX
 #include <dlfcn.h>
@@ -150,7 +154,7 @@ CGameConfig::CGameConfig(const char *file, const char *engine)
 	m_CustomHandler = NULL;
 
 	if (!engine)
-		m_pEngine = smcore.GetSourceEngineName();
+		m_pEngine = bridge->GetSourceEngineName();
 	else
 		m_pEngine = engine;
 
@@ -271,7 +275,7 @@ SMCResult CGameConfig::ReadSMC_NewSection(const SMCStates *states, const char *n
 			error[0] = '\0';
 			if (strcmp(name, "server") != 0)
 			{
-				smcore.Format(error, sizeof(error), "Unrecognized library \"%s\"", name);
+				ke::SafeSprintf(error, sizeof(error), "Unrecognized library \"%s\"", name);
 			} 
 			else if (!s_ServerBinCRC_Ok)
 			{
@@ -281,7 +285,7 @@ SMCResult CGameConfig::ReadSMC_NewSection(const SMCStates *states, const char *n
 				g_pSM->BuildPath(Path_Game, path, sizeof(path), "bin/" PLATFORM_SERVER_BINARY);
 				if ((fp = fopen(path, "rb")) == NULL)
 				{
-					smcore.Format(error, sizeof(error), "Could not open binary: %s", path);
+					ke::SafeSprintf(error, sizeof(error), "Could not open binary: %s", path);
 				} else {
 					size_t size;
 					void *buffer;
@@ -301,8 +305,8 @@ SMCResult CGameConfig::ReadSMC_NewSection(const SMCStates *states, const char *n
 			if (error[0] != '\0')
 			{
 				m_IgnoreLevel = 1;
-				smcore.LogError("[SM] Error while parsing CRC section for \"%s\" (%s):", m_Game, m_CurFile);
-				smcore.LogError("[SM] %s", error);
+				logger->LogError("[SM] Error while parsing CRC section for \"%s\" (%s):", m_Game, m_CurFile);
+				logger->LogError("[SM] %s", error);
 			} else {
 				m_ParseState = PSTATE_GAMEDEFS_CRC_BINARY;
 			}
@@ -335,8 +339,8 @@ SMCResult CGameConfig::ReadSMC_NewSection(const SMCStates *states, const char *n
 			{
 				if (strcmp(name, "linux") != 0 && strcmp(name, "windows") != 0 && strcmp(name, "mac") != 0)
 				{
-					smcore.LogError("[SM] Error while parsing Address section for \"%s\" (%s):", m_Address, m_CurFile);
-					smcore.LogError("[SM] Unrecognized platform \"%s\"", name);
+					logger->LogError("[SM] Error while parsing Address section for \"%s\" (%s):", m_Address, m_CurFile);
+					logger->LogError("[SM] Unrecognized platform \"%s\"", name);
 				}
 				m_IgnoreLevel = 1;
 			}
@@ -435,7 +439,7 @@ SMCResult CGameConfig::ReadSMC_KeyValue(const SMCStates *states, const char *key
 			}
 			else
 			{
-				smcore.LogError("[SM] Error parsing Address \"%s\", does not support more than %d read offsets (gameconf \"%s\")", m_Address, limit, m_CurFile);
+				logger->LogError("[SM] Error parsing Address \"%s\", does not support more than %d read offsets (gameconf \"%s\")", m_Address, limit, m_CurFile);
 			}
 		} else if (strcmp(key, "signature") == 0) {
 			strncopy(m_AddressSignature, value, sizeof(m_AddressSignature));
@@ -503,7 +507,7 @@ SMCResult CGameConfig::ReadSMC_LeavingSection(const SMCStates *states)
 					if (((strcmp(m_Game, "*") != 0) && strcmp(m_Game, "#default") != 0)
 						&& (!m_Offsets.retrieve(m_offset)))
 					{
-						smcore.LogError("[SM] Unable to find property %s.%s (file \"%s\") (mod \"%s\")", 
+						logger->LogError("[SM] Unable to find property %s.%s (file \"%s\") (mod \"%s\")", 
 							m_Class,
 							m_Prop,
 							m_CurFile,
@@ -547,16 +551,16 @@ SMCResult CGameConfig::ReadSMC_LeavingSection(const SMCStates *states)
 			void *addrInBase = NULL;
 			if (strcmp(s_TempSig.library, "server") == 0)
 			{
-				addrInBase = smcore.serverFactory;
+				addrInBase = bridge->serverFactory;
 			} else if (strcmp(s_TempSig.library, "engine") == 0) {
-				addrInBase = smcore.engineFactory;
+				addrInBase = bridge->engineFactory;
 			} else if (strcmp(s_TempSig.library, "matchmaking_ds") == 0) {
-				addrInBase = smcore.matchmakingDSFactory;
+				addrInBase = bridge->matchmakingDSFactory;
 			}
 			void *final_addr = NULL;
 			if (addrInBase == NULL)
 			{
-				smcore.LogError("[SM] Unrecognized library \"%s\" (gameconf \"%s\")", 
+				logger->LogError("[SM] Unrecognized library \"%s\" (gameconf \"%s\")", 
 					s_TempSig.library, 
 					m_CurFile);
 			}
@@ -570,7 +574,7 @@ SMCResult CGameConfig::ReadSMC_LeavingSection(const SMCStates *states)
 					if (VirtualQuery(addrInBase, &mem, sizeof(mem)))
 						final_addr = g_MemUtils.ResolveSymbol(mem.AllocationBase, &s_TempSig.sig[1]);
 					else
-						smcore.LogError("[SM] Unable to find library \"%s\" in memory (gameconf \"%s\")", s_TempSig.library, m_File);
+						logger->LogError("[SM] Unable to find library \"%s\" in memory (gameconf \"%s\")", s_TempSig.library, m_File);
 #elif defined PLATFORM_POSIX
 					Dl_info info;
 					/* GNU only: returns 0 on error, inconsistent! >:[ */
@@ -579,18 +583,18 @@ SMCResult CGameConfig::ReadSMC_LeavingSection(const SMCStates *states)
 						void *handle = dlopen(info.dli_fname, RTLD_NOW);
 						if (handle)
 						{
-							if (smcore.SymbolsAreHidden())
+							if (bridge->SymbolsAreHidden())
 								final_addr = g_MemUtils.ResolveSymbol(handle, &s_TempSig.sig[1]);
 							else
 								final_addr = dlsym(handle, &s_TempSig.sig[1]);
 							dlclose(handle);
 						} else {
-							smcore.LogError("[SM] Unable to load library \"%s\" (gameconf \"%s\")",
+							logger->LogError("[SM] Unable to load library \"%s\" (gameconf \"%s\")",
 								s_TempSig.library,
 								m_File);
 						}
 					} else {
-						smcore.LogError("[SM] Unable to find library \"%s\" in memory (gameconf \"%s\")",
+						logger->LogError("[SM] Unable to find library \"%s\" in memory (gameconf \"%s\")",
 							s_TempSig.library,
 							m_File);
 					}
@@ -791,7 +795,7 @@ bool CGameConfig::Reparse(char *error, size_t maxlength)
 	if (!libsys->PathExists(path))
 	{
 		/* Nope, use the old mechanism. */
-		smcore.Format(path, sizeof(path), "%s.txt", m_File);
+		ke::SafeSprintf(path, sizeof(path), "%s.txt", m_File);
 		if (!EnterFile(path, error, maxlength))
 		{
 			return false;
@@ -801,8 +805,13 @@ bool CGameConfig::Reparse(char *error, size_t maxlength)
 		g_pSM->BuildPath(Path_SM, path, sizeof(path), "gamedata/custom/%s.txt", m_File);
 		if (libsys->PathExists(path))
 		{
-			smcore.Format(path, sizeof(path), "custom/%s.txt", m_File);
-			return EnterFile(path, error, maxlength);
+			ke::SafeSprintf(path, sizeof(path), "custom/%s.txt", m_File);
+			bool success = EnterFile(path, error, maxlength);
+			if (success)
+			{
+				rootmenu->ConsolePrint("[SM] Parsed custom gamedata override file: %s", path);
+			}
+			return success;
 		}
 		return true;
 	}
@@ -827,8 +836,8 @@ bool CGameConfig::Reparse(char *error, size_t maxlength)
 		{
 			const char *msg = textparsers->GetSMCErrorString(err);
 
-			smcore.LogError("[SM] Error parsing master gameconf file \"%s\":", path);
-			smcore.LogError("[SM] Error %d on line %d, col %d: %s", 
+			logger->LogError("[SM] Error parsing master gameconf file \"%s\":", path);
+			logger->LogError("[SM] Error %d on line %d, col %d: %s", 
 				err,
 				state.line,
 				state.col,
@@ -841,7 +850,7 @@ bool CGameConfig::Reparse(char *error, size_t maxlength)
 	List<String>::iterator iter;
 	for (iter = fileList.begin(); iter != fileList.end(); iter++)
 	{
-		smcore.Format(path, sizeof(path), "%s/%s", m_File, (*iter).c_str());
+		ke::SafeSprintf(path, sizeof(path), "%s/%s", m_File, (*iter).c_str());
 		if (!EnterFile(path, error, maxlength))
 		{
 			return false;
@@ -875,12 +884,14 @@ bool CGameConfig::Reparse(char *error, size_t maxlength)
 			continue;	
 		}
 
-		smcore.Format(path, sizeof(path), "%s/custom/%s", m_File, curFile);
+		ke::SafeSprintf(path, sizeof(path), "%s/custom/%s", m_File, curFile);
 		if (!EnterFile(path, error, maxlength))
 		{
 			libsys->CloseDirectory(customDir);
 			return false;
 		}
+
+		rootmenu->ConsolePrint("[SM] Parsed custom gamedata override file: %s", path);
 
 		customDir->NextEntry();
 	}
@@ -915,8 +926,8 @@ bool CGameConfig::EnterFile(const char *file, char *error, size_t maxlength)
 		{
 			const char *msg = textparsers->GetSMCErrorString(err);
 
-			smcore.LogError("[SM] Error parsing gameconfig file \"%s\":", m_CurFile);
-			smcore.LogError("[SM] Error %d on line %d, col %d: %s", 
+			logger->LogError("[SM] Error parsing gameconfig file \"%s\":", m_CurFile);
+			logger->LogError("[SM] Error %d on line %d, col %d: %s", 
 				err,
 				state.line,
 				state.col,
@@ -1038,8 +1049,8 @@ void GameConfigManager::OnSourceModStartup(bool late)
 	LoadGameConfigFile("core.games", &g_pGameConf, NULL, 0);
 
 	strncopy(g_Game, g_pSM->GetGameFolderName(), sizeof(g_Game));
-	strncopy(g_GameDesc + 1, smcore.GetGameDescription(), sizeof(g_GameDesc) - 1);
-	smcore.GetGameName(g_GameName + 1, sizeof(g_GameName) - 1);
+	strncopy(g_GameDesc + 1, bridge->GetGameDescription(), sizeof(g_GameDesc) - 1);
+	bridge->GetGameName(g_GameName + 1, sizeof(g_GameName) - 1);
 }
 
 void GameConfigManager::OnSourceModAllInitialized()
@@ -1082,6 +1093,7 @@ bool GameConfigManager::LoadGameConfigFile(const char *file, IGameConfig **_pCon
 	}
 
 	pConfig = new CGameConfig(file);
+	pConfig->AddRef();
 
 	/* :HACKHACK: Don't parse the main config file */
 	bool retval = true;

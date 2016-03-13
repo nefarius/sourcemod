@@ -88,7 +88,7 @@ enum ExecType
 #define SP_ERROR_INVALID_ADDRESS		5	/**< A memory address was not valid */
 #define SP_ERROR_NOT_FOUND				6	/**< The object in question was not found */
 #define SP_ERROR_INDEX					7	/**< Invalid index parameter */
-#define SP_ERROR_STACKLOW				8	/**< Nnot enough space left on the stack */
+#define SP_ERROR_STACKLOW				8	/**< Not enough space left on the stack */
 #define SP_ERROR_NOTDEBUGGING			9	/**< Debug mode was not on or debug section not found */
 #define SP_ERROR_INVALID_INSTRUCTION	10	/**< Invalid instruction was encountered */
 #define SP_ERROR_MEMACCESS				11	/**< Invalid memory access */
@@ -164,7 +164,7 @@ native GetForwardFunctionCount(Handle:fwd);
 /**
  * Adds a function to a private forward's call list.
  *
- * @note Cannot be used during an incompleted call.
+ * @note Cannot be used during an incomplete call.
  *
  * @param fwd				Handle to private forward.
  * @param plugin			Handle of the plugin that contains the function.
@@ -206,7 +206,7 @@ native RemoveAllFromForward(Handle:fwd, Handle:plugin);
 /**
  * Starts a call to functions in a forward's call list.
  *
- * @note Cannot be used during an incompleted call.
+ * @note Cannot be used during an incomplete call.
  *
  * @param fwd				Handle to global or private forward.
  * @noreturn
@@ -217,7 +217,7 @@ native Call_StartForward(Handle:fwd);
 /**
  * Starts a call to a function.
  *
- * @note Cannot be used during an incompleted call.
+ * @note Cannot be used during an incomplete call.
  *
  * @param plugin			Handle of the plugin that contains the function.
  *							Pass INVALID_HANDLE to specify the calling plugin.
@@ -318,10 +318,10 @@ native Call_PushString(const String:value[]);
  * @param value				String to push.
  * @param length			Length of string buffer.
  * @param szflags			Flags determining how string should be handled.
- *							See SP_PARAM_STRING_* constants for details.
+ *							See SM_PARAM_STRING_* constants for details.
  *							The default (0) is to push ASCII.
  * @param cpflags			Whether or not changes should be copied back to the input array.
- *							See SP_PARAM_* constants for details.		
+ *							See SM_PARAM_* constants for details.		
  * @noreturn
  * @error					Called before a call has been started.
  */
@@ -357,13 +357,13 @@ native Call_Cancel();
  * @param numParams			Number of parameters passed to the native.
  * @return 					Value for the native call to return.
  */
-functag public NativeCall(Handle:plugin, numParams);
+typedef NativeCall = function int (Handle plugin, int numParams);
 
 /**
  * Creates a dynamic native.  This should only be called in AskPluginLoad(), or 
  * else you risk not having your native shared with other plugins.
  *
- * @param name				Name of the dynamic native; must be unique amongst
+ * @param name				Name of the dynamic native; must be unique among
  *							all other registered dynamic natives.
  * @param func				Function to use as the dynamic native.
  * @noreturn
@@ -427,6 +427,15 @@ native SetNativeString(param, const String:source[], maxlength, bool:utf8=true, 
  * @error					Invalid parameter number or calling from a non-native function.
  */
 native any:GetNativeCell(param);
+
+/**
+ * Gets a function pointer from a native parameter.
+ *
+ * @param param             Parameter number, starting from 1.
+ * @return                  Function pointer at the given parameter number.
+ * @error                   Invalid parameter number, or calling from a non-native function.
+ */
+native Function GetNativeFunction(param);
 
 /**
  * Gets a cell from a native parameter, by reference.
@@ -499,7 +508,7 @@ native FormatNativeString(out_param,
  * @param data			Data passed to the RequestFrame native.
  * @noreturn
  */
-functag public RequestFrameCallback(any:data);
+typedef RequestFrameCallback = function void (any data);
 
 /**
  * Creates a single use Next Frame hook.

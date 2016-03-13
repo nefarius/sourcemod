@@ -36,6 +36,7 @@
 #include "PluginSys.h"
 #include <stdlib.h>
 #include <IThreader.h>
+#include <bridge/include/ILogger.h>
 
 #define DBPARSE_LEVEL_NONE		0
 #define DBPARSE_LEVEL_MAIN		1
@@ -89,11 +90,11 @@ void DBManager::OnSourceModLevelChange(const char *mapName)
 	ke::AutoLock lock(&m_ConfigLock);
 	if ((err = textparsers->ParseFile_SMC(m_Filename, this, &states)) != SMCError_Okay)
 	{
-		smcore.LogError("[SM] Detected parse error(s) in file \"%s\"", m_Filename);
+		logger->LogError("[SM] Detected parse error(s) in file \"%s\"", m_Filename);
 		if (err != SMCError_Custom)
 		{
 			const char *txt = textparsers->GetSMCErrorString(err);
-			smcore.LogError("[SM] Line %d: %s", states.line, txt);
+			logger->LogError("[SM] Line %d: %s", states.line, txt);
 		}
 	}
 }
@@ -541,7 +542,7 @@ bool DBManager::AddToThreadQueue(IDBThreadOperation *op, PrioQueueLevel prio)
 		{
 			if (!s_OneTimeThreaderErrorMsg)
 			{
-				smcore.LogError("[SM] Unable to create db threader (error unknown)");
+				logger->LogError("[SM] Unable to create db threader (error unknown)");
 				s_OneTimeThreaderErrorMsg = true;
 			}
 			m_Worker = NULL;
@@ -615,6 +616,17 @@ void DBManager::ThreadMain()
 				ke::AutoLock lock(&m_ThinkLock);
 				m_ThinkQueue.push(op);
 			}
+			
+			
+			if (!m_Terminate)
+			{
+				ke::AutoUnlock unlock(&m_QueueEvent);
+#ifdef _WIN32
+				Sleep(20);
+#else
+				usleep(20000);
+#endif
+			}
 		}
 
 		if (m_Terminate)
@@ -681,7 +693,7 @@ void DBManager::OnSourceModIdentityDropped(IdentityToken_t *pToken)
 	s_pAddBlock = NULL;
 }
 
-void DBManager::OnPluginUnloaded(IPlugin *plugin)
+void DBManager::OnPluginWillUnload(IPlugin *plugin)
 {
 	/* Kill the thread so we can flush everything into the think queue... */
 	KillWorkerThread();
@@ -707,9 +719,7 @@ void DBManager::OnPluginUnloaded(IPlugin *plugin)
 		}
 	}
 
-	for (iter = templist.begin();
-		 iter != templist.end();
-		 iter++)
+	for (iter = templist.begin(); iter != templist.end(); iter++)
 	{
 		IDBThreadOperation *op = (*iter);
 		op->RunThinkPart();

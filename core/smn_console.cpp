@@ -46,6 +46,10 @@
 #include "ConCommandBaseIterator.h"
 #include "logic_bridge.h"
 #include <sm_namehashset.h>
+#include "smn_keyvalues.h"
+#include <bridge/include/IScriptManager.h>
+#include <bridge/include/ILogger.h>
+#include <ITranslator.h>
 
 #if SOURCE_ENGINE == SE_CSGO || SOURCE_ENGINE == SE_DOTA
 #include <netmessages.pb.h>
@@ -127,7 +131,7 @@ public:
 class CommandFlagsHelper : public IConCommandTracker
 {
 public:
-	void OnUnlinkConCommandBase(ConCommandBase *pBase, const char *name, bool is_read_safe)
+	void OnUnlinkConCommandBase(ConCommandBase *pBase, const char *name) override
 	{
 		m_CmdFlags.remove(name);
 	}
@@ -360,13 +364,13 @@ static cell_t sm_SetConVarNum(IPluginContext *pContext, const cell_t *params)
 
 #if SOURCE_ENGINE < SE_ORANGEBOX
 	/* Should we replicate it? */
-	if (params[3] && IsFlagSet(pConVar, FCVAR_REPLICATED))
+	if (params[0] >= 3 && params[3] && IsFlagSet(pConVar, FCVAR_REPLICATED))
 	{
 		ReplicateConVar(pConVar);
 	}
 
 	/* Should we notify clients? */
-	if (params[4] && IsFlagSet(pConVar, FCVAR_NOTIFY))
+	if (params[0] >= 4 && params[4] && IsFlagSet(pConVar, FCVAR_NOTIFY))
 	{
 		NotifyConVar(pConVar);
 	}
@@ -409,13 +413,13 @@ static cell_t sm_SetConVarFloat(IPluginContext *pContext, const cell_t *params)
 
 #if SOURCE_ENGINE < SE_ORANGEBOX
 	/* Should we replicate it? */
-	if (params[3] && IsFlagSet(pConVar, FCVAR_REPLICATED))
+	if (params[0] >= 3 && params[3] && IsFlagSet(pConVar, FCVAR_REPLICATED))
 	{
 		ReplicateConVar(pConVar);
 	}
 
 	/* Should we notify clients? */
-	if (params[4] && IsFlagSet(pConVar, FCVAR_NOTIFY))
+	if (params[0] >= 4 && params[4] && IsFlagSet(pConVar, FCVAR_NOTIFY))
 	{
 		NotifyConVar(pConVar);
 	}
@@ -460,13 +464,13 @@ static cell_t sm_SetConVarString(IPluginContext *pContext, const cell_t *params)
 
 #if SOURCE_ENGINE < SE_ORANGEBOX
 	/* Should we replicate it? */
-	if (params[3] && IsFlagSet(pConVar, FCVAR_REPLICATED))
+	if (params[0] >= 3 && params[3] && IsFlagSet(pConVar, FCVAR_REPLICATED))
 	{
 		ReplicateConVar(pConVar);
 	}
 
 	/* Should we notify clients? */
-	if (params[4] && IsFlagSet(pConVar, FCVAR_NOTIFY))
+	if (params[0] >= 4 && params[4] && IsFlagSet(pConVar, FCVAR_NOTIFY))
 	{
 		NotifyConVar(pConVar);
 	}
@@ -780,7 +784,7 @@ static cell_t sm_RegAdminCmd(IPluginContext *pContext, const cell_t *params)
 
 static cell_t sm_GetCmdArgs(IPluginContext *pContext, const cell_t *params)
 {
-	const CCommand *pCmd = g_HL2.PeekCommandStack();
+	const ICommandArgs *pCmd = g_HL2.PeekCommandStack();
 
 	if (!pCmd)
 	{
@@ -792,7 +796,7 @@ static cell_t sm_GetCmdArgs(IPluginContext *pContext, const cell_t *params)
 
 static cell_t sm_GetCmdArg(IPluginContext *pContext, const cell_t *params)
 {
-	const CCommand *pCmd = g_HL2.PeekCommandStack();
+	const ICommandArgs *pCmd = g_HL2.PeekCommandStack();
 
 	if (!pCmd)
 	{
@@ -810,7 +814,7 @@ static cell_t sm_GetCmdArg(IPluginContext *pContext, const cell_t *params)
 
 static cell_t sm_GetCmdArgString(IPluginContext *pContext, const cell_t *params)
 {
-	const CCommand *pCmd = g_HL2.PeekCommandStack();
+	const ICommandArgs *pCmd = g_HL2.PeekCommandStack();
 
 	if (!pCmd)
 	{
@@ -909,11 +913,12 @@ static cell_t sm_ServerCommandEx(IPluginContext *pContext, const cell_t *params)
 	g_SourceMod.SetGlobalTarget(SOURCEMOD_SERVER_LANGUAGE);
 
 	char buffer[1024];
-	size_t len = g_SourceMod.FormatString(buffer, sizeof(buffer)-2, pContext, params, 3);
-
-	if (pContext->GetLastNativeError() != SP_ERROR_NONE)
+	size_t len;
 	{
-		return 0;
+		DetectExceptions eh(pContext);
+		len = g_SourceMod.FormatString(buffer, sizeof(buffer)-2, pContext, params, 3);
+		if (eh.HasException())
+			return 0;
 	}
 
 	/* One byte for null terminator, one for newline */
@@ -965,11 +970,11 @@ static cell_t FakeClientCommandEx(IPluginContext *pContext, const cell_t *params
 	g_SourceMod.SetGlobalTarget(params[1]);
 
 	char buffer[256];
-	g_SourceMod.FormatString(buffer, sizeof(buffer), pContext, params, 2);
-
-	if (pContext->GetLastNativeError() != SP_ERROR_NONE)
 	{
-		return 0;
+		DetectExceptions eh(pContext);
+		g_SourceMod.FormatString(buffer, sizeof(buffer), pContext, params, 2);
+		if (eh.HasException())
+			return 0;
 	}
 
 	g_HL2.AddToFakeCliCmdQueue(params[1], GetPlayerUserId(pPlayer->GetEdict()), buffer);
@@ -1182,28 +1187,19 @@ static cell_t SendConVarValue(IPluginContext *pContext, const cell_t *params)
 	CPlayer *pPlayer = g_Players.GetPlayerByIndex(params[1]);
 
 	if (!pPlayer)
-	{
 		return pContext->ThrowNativeError("Client index %d is invalid", params[1]);
-	}
 
 	if (!pPlayer->IsConnected())
-	{
 		return pContext->ThrowNativeError("Client %d is not connected", params[1]);
-	}
 
 	if (pPlayer->IsFakeClient())
-	{
 		return pContext->ThrowNativeError("Client %d is fake and cannot be targeted", params[1]);
-	}
 
 	INetChannel *netchan = static_cast<INetChannel *>(engine->GetPlayerNetInfo(params[1]));
 	if (netchan == NULL)
-	{
 		return 0;
-	}
 
 	netchan->SendData(buffer);
-
 	return 1;
 }
 
@@ -1216,7 +1212,7 @@ static cell_t AddCommandListener(IPluginContext *pContext, const cell_t *params)
 
 	if (strcasecmp(name, "sm") == 0)
 	{
-		g_Logger.LogError("Request to register \"sm\" command denied.");
+		logger->LogError("Request to register \"sm\" command denied.");
 		return 0;
 	}
 
@@ -1245,6 +1241,64 @@ static cell_t RemoveCommandListener(IPluginContext *pContext, const cell_t *para
 		return pContext->ThrowNativeError("No matching callback was registered");
 	
 	return 1;
+}
+
+static cell_t ConVar_ReplicateToClient(IPluginContext *pContext, const cell_t *params)
+{
+	// Old version is (client, handle, value).
+	// New version is (handle, client, value).
+	cell_t new_params[4] = {
+		3,
+		params[2],
+		params[1],
+		params[3],
+	};
+
+	return SendConVarValue(pContext, new_params);
+}
+
+static cell_t FakeClientCommandKeyValues(IPluginContext *pContext, const cell_t *params)
+{
+#if SOURCE_ENGINE >= SE_EYE && SOURCE_ENGINE != SE_DOTA
+	int client = params[1];
+
+	CPlayer *pPlayer = g_Players.GetPlayerByIndex(client);
+	if (!pPlayer)
+	{
+		return pContext->ThrowNativeError("Client index %d is invalid", client);
+	}
+	else if (!pPlayer->IsConnected())
+	{
+		return pContext->ThrowNativeError("Client %d is not connected", client);
+	}
+
+	Handle_t hndl = static_cast<Handle_t>(params[2]);
+	HandleError herr;
+	HandleSecurity sec;
+	KeyValueStack *pStk;
+
+	sec.pOwner = NULL;
+	sec.pIdentity = g_pCoreIdent;
+
+	if ((herr = handlesys->ReadHandle(hndl, g_KeyValueType, &sec, (void **) &pStk))
+		!= HandleError_None)
+	{
+		return pContext->ThrowNativeError("Invalid key value handle %x (error %d)", hndl, herr);
+	}
+
+	if (g_Players.InClientCommandKeyValuesHook())
+	{
+		SH_CALL(serverClients, &IServerGameClients::ClientCommandKeyValues)(pPlayer->GetEdict(), pStk->pBase);
+	}
+	else
+	{
+		serverClients->ClientCommandKeyValues(pPlayer->GetEdict(), pStk->pBase);
+	}
+
+	return 1;
+#else
+	return pContext->ThrowNativeError("FakeClientCommandKeyValues is not supported on this game.");
+#endif
 }
 
 REGISTER_NATIVES(consoleNatives)
@@ -1287,5 +1341,30 @@ REGISTER_NATIVES(consoleNatives)
 	{"SendConVarValue",		SendConVarValue},
 	{"AddCommandListener",	AddCommandListener},
 	{"RemoveCommandListener", RemoveCommandListener},
+	{"FakeClientCommandKeyValues", FakeClientCommandKeyValues},
+
+	// Transitional syntax support.
+	{"ConVar.BoolValue.get",	sm_GetConVarBool},
+	{"ConVar.BoolValue.set",	sm_SetConVarNum},
+	{"ConVar.FloatValue.get",	sm_GetConVarFloat},
+	{"ConVar.FloatValue.set",	sm_SetConVarFloat},
+	{"ConVar.IntValue.get",		sm_GetConVarInt},
+	{"ConVar.IntValue.set",		sm_SetConVarNum},
+	{"ConVar.Flags.get",		sm_GetConVarFlags},
+	{"ConVar.Flags.set",		sm_SetConVarFlags},
+	{"ConVar.SetBool",			sm_SetConVarNum},
+	{"ConVar.SetInt",			sm_SetConVarNum},
+	{"ConVar.SetFloat",			sm_SetConVarFloat},
+	{"ConVar.GetString",		sm_GetConVarString},
+	{"ConVar.SetString",		sm_SetConVarString},
+	{"ConVar.RestoreDefault",	sm_ResetConVar},
+	{"ConVar.GetDefault",		GetConVarDefault},
+	{"ConVar.GetBounds",		sm_GetConVarBounds},
+	{"ConVar.SetBounds",		sm_SetConVarBounds},
+	{"ConVar.GetName",			sm_GetConVarName},
+	{"ConVar.ReplicateToClient",	ConVar_ReplicateToClient},
+	{"ConVar.AddChangeHook",	sm_HookConVarChange},
+	{"ConVar.RemoveChangeHook",	sm_UnhookConVarChange},
+
 	{NULL,					NULL}
 };

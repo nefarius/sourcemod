@@ -13,7 +13,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 """
 
 __author__ = "Asher Baker"
-__copyright__ = "Copyright 2012, Asher Baker"
+__copyright__ = "Copyright 2014, Asher Baker"
 __license__ = "zlib/libpng"
 
 import re
@@ -42,21 +42,29 @@ innerclass = ""
 classname = None
 offsetdata = {}
 
+# Detect address size
+adr_size = 8 if __EA64__ else 4
+
 def ExtractTypeInfo(ea, level = 0):
 	global catchclass
 	global innerclass
 	global classname
 	global offsetdata
 	
-	# Param needed to support old IDAPython versions
-	end = NextNotTail(ea)
+	end = ea + adr_size
+	
+	while len(Name(end)) == 0:
+		end += adr_size
+	
+	while Dword(end - adr_size) == 0:
+		end -= adr_size
 	
 	# Skip vtable
-	ea += 4
+	ea += adr_size
 	
 	# Get type name
 	name = Demangle("_Z" + GetString(Dword(ea)), GetLongPrm(INF_LONG_DN))
-	ea += 4
+	ea += adr_size
 	
 	if classname is None and level == 0:
 		classname = name
@@ -69,17 +77,17 @@ def ExtractTypeInfo(ea, level = 0):
 	
 	if not ea < end: # Base Type
 		pass
-	elif isData(GetFlags(Dword(ea))): # Single Inheritance
+	elif Dword(ea) != 0: #elif isData(GetFlags(Dword(ea))): # Single Inheritance
 		ExtractTypeInfo(Dword(ea), level + 1)
-		ea += 4
+		ea += adr_size
 	else: # Multiple Inheritance
 		ea += 8
 		while ea < end:
 			catchclass = True
 			ExtractTypeInfo(Dword(ea), level + 1)
-			ea += 4
+			ea += adr_size
 			offset = Dword(ea)
-			ea += 4
+			ea += adr_size
 			#print "%*s Offset: 0x%06X" % (level, "", offset >> 8)
 			if (offset >> 8) != 0:
 				offsetdata[offset >> 8] = innerclass
@@ -101,11 +109,15 @@ def Analyze():
 	
 	ea = ScreenEA()
 	
-	if not isHead(GetFlags(ea)):
-		# Param needed to support old IDAPython versions
-		ea = PrevHead(ea, 0)
+	end = ea + adr_size
+	while Demangle(Name(end), GetLongPrm(INF_LONG_DN)) is None:
+		end += adr_size
 	
-	end = NextNotTail(ea)
+	while Dword(end - adr_size) == 0:
+		end -= adr_size
+	
+	while Demangle(Name(ea), GetLongPrm(INF_LONG_DN)) is None:
+		ea -= adr_size
 	
 	name = Demangle(Name(ea), GetLongPrm(INF_LONG_DN))
 	if ea == BADADDR or name is None or not re.search(r"vf?table(?: |'\{)for", name):
@@ -124,17 +136,18 @@ def Analyze():
 	while ea < end:
 		# Read thisoffs
 		offset = -twos_comp(Dword(ea), 32)
-		ea += 4
+		#print "Offset: 0x%08X (%08X)" % (offset, ea)
+		ea += adr_size
 		
 		# Read typeinfo address
 		typeinfo = Dword(ea)
-		ea += 4
+		ea += adr_size
 		
 		if offset == 0: # We only need to read this once
 			print "Inheritance Tree:"
 			ExtractTypeInfo(typeinfo)
 		
-		while ea < end and isCode(GetFlags(Dword(ea))):
+		while ea < end and (isCode(GetFlags(Dword(ea))) or Name(Dword(ea)) == "___cxa_pure_virtual"):
 			name = Name(Dword(ea))
 			demangled = Demangle(name, GetLongPrm(INF_LONG_DN))
 			#print "Name: %s, Demangled: %s" % (name, demangled)
@@ -165,7 +178,7 @@ def Analyze():
 					#print "Stripping '%s' from windows vtable." % (name)
 					temp_windows_vtable.remove(name)
 			
-			ea += 4
+			ea += adr_size
 	
 	for i, v in enumerate(temp_windows_vtable):
 		if "::~" in v:

@@ -1003,7 +1003,7 @@ static cell_t SetEntDataString(IPluginContext *pContext, const cell_t *params)
 	char *dest = (char *)((uint8_t *)pEntity + offset);
 
 	pContext->LocalToString(params[3], &src);
-	size_t len = strncopy(dest, src, params[4]);
+	size_t len = ke::SafeStrcpy(dest, params[4], src);
 
 	if (params[5] && (pEdict != NULL))
 	{
@@ -1254,7 +1254,8 @@ static cell_t GetEntProp(IPluginContext *pContext, const cell_t *params)
 			is_unsigned = ((pProp->GetFlags() & SPROP_UNSIGNED) == SPROP_UNSIGNED);
 
 			// This isn't in CS:S yet, but will be, doesn't hurt to add now, and will save us a build later
-#if SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_SDK2013 || SOURCE_ENGINE == SE_TF2
+#if SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS \
+	|| SOURCE_ENGINE == SE_BMS || SOURCE_ENGINE == SE_SDK2013 || SOURCE_ENGINE == SE_TF2
 			if (pProp->GetFlags() & SPROP_VARINT)
 			{
 				bit_count = sizeof(int) * 8;
@@ -1352,7 +1353,8 @@ static cell_t SetEntProp(IPluginContext *pContext, const cell_t *params)
 			FIND_PROP_SEND(DPT_Int, "integer");
 
 			// This isn't in CS:S yet, but will be, doesn't hurt to add now, and will save us a build later
-#if SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_SDK2013 || SOURCE_ENGINE == SE_TF2
+#if SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS \
+	|| SOURCE_ENGINE == SE_BMS || SOURCE_ENGINE == SE_SDK2013 || SOURCE_ENGINE == SE_TF2
 			if (pProp->GetFlags() & SPROP_VARINT)
 			{
 				bit_count = sizeof(int) * 8;
@@ -1519,6 +1521,13 @@ static cell_t SetEntPropFloat(IPluginContext *pContext, const cell_t *params)
 	return 1;
 }
 
+enum PropEntType
+{
+	PropEnt_Handle,
+	PropEnt_Entity,
+	PropEnt_Edict,
+};
+
 static cell_t GetEntPropEnt(IPluginContext *pContext, const cell_t *params)
 {
 	CBaseEntity *pEntity;
@@ -1526,6 +1535,7 @@ static cell_t GetEntPropEnt(IPluginContext *pContext, const cell_t *params)
 	int offset;
 	int bit_count;
 	edict_t *pEdict;
+	PropEntType type;
 
 	int element = 0;
 	if (params[0] >= 4)
@@ -1548,12 +1558,23 @@ static cell_t GetEntPropEnt(IPluginContext *pContext, const cell_t *params)
 
 			FIND_PROP_DATA(td);
 
-			if (td->fieldType != FIELD_EHANDLE)
+			switch (td->fieldType)
 			{
-				return pContext->ThrowNativeError("Data field %s is not an entity (%d != %d)", 
+			case FIELD_EHANDLE:
+				type = PropEnt_Handle;
+				break;
+			case FIELD_CLASSPTR:
+				type = PropEnt_Entity;
+				break;
+#if SOURCE_ENGINE != SE_DOTA
+			case FIELD_EDICT:
+				type = PropEnt_Edict;
+				break;
+#endif
+			default:
+				return pContext->ThrowNativeError("Data field %s is not an entity nor edict (%d)",
 					prop,
-					td->fieldType,
-					FIELD_EHANDLE);
+					td->fieldType);
 			}
 
 			CHECK_SET_PROP_DATA_OFFSET();
@@ -1562,6 +1583,7 @@ static cell_t GetEntPropEnt(IPluginContext *pContext, const cell_t *params)
 		}
 	case Prop_Send:
 		{
+			type = PropEnt_Handle;
 			FIND_PROP_SEND(DPT_Int, "integer");
 			break;
 		}
@@ -1571,13 +1593,34 @@ static cell_t GetEntPropEnt(IPluginContext *pContext, const cell_t *params)
 		}
 	}
 
-	CBaseHandle &hndl = *(CBaseHandle *)((uint8_t *)pEntity + offset);
-	CBaseEntity *pHandleEntity = g_HL2.ReferenceToEntity(hndl.GetEntryIndex());
+	switch (type)
+	{
+	case PropEnt_Handle:
+		{
+			CBaseHandle &hndl = *(CBaseHandle *) ((uint8_t *) pEntity + offset);
+			CBaseEntity *pHandleEntity = g_HL2.ReferenceToEntity(hndl.GetEntryIndex());
 
-	if (!pHandleEntity || hndl != reinterpret_cast<IHandleEntity *>(pHandleEntity)->GetRefEHandle())
-		return -1;
+			if (!pHandleEntity || hndl != reinterpret_cast<IHandleEntity *>(pHandleEntity)->GetRefEHandle())
+				return -1;
 
-	return g_HL2.EntityToBCompatRef(pHandleEntity);
+			return g_HL2.EntityToBCompatRef(pHandleEntity);
+		}
+	case PropEnt_Entity:
+		{
+			CBaseEntity *pPropEntity = *(CBaseEntity **) ((uint8_t *) pEntity + offset);
+			return g_HL2.EntityToBCompatRef(pPropEntity);
+		}
+	case PropEnt_Edict:
+		{
+			edict_t *pEdict = *(edict_t **) ((uint8_t *) pEntity + offset);
+			if (!pEdict || pEdict->IsFree())
+				return -1;
+
+			return IndexOfEdict(pEdict);
+		}
+	}
+	
+	return -1;
 }
 
 static cell_t SetEntPropEnt(IPluginContext *pContext, const cell_t *params)
@@ -1587,6 +1630,7 @@ static cell_t SetEntPropEnt(IPluginContext *pContext, const cell_t *params)
 	int offset;
 	int bit_count;
 	edict_t *pEdict;
+	PropEntType type;
 
 	int element = 0;
 	if (params[0] >= 5)
@@ -1609,12 +1653,25 @@ static cell_t SetEntPropEnt(IPluginContext *pContext, const cell_t *params)
 
 			FIND_PROP_DATA(td);
 
-			if (td->fieldType != FIELD_EHANDLE)
+			switch (td->fieldType)
 			{
-				return pContext->ThrowNativeError("Data field %s is not an entity (%d != %d)", 
+			case FIELD_EHANDLE:
+				type = PropEnt_Handle;
+				break;
+			case FIELD_CLASSPTR:
+				type = PropEnt_Entity;
+				break;
+#if SOURCE_ENGINE != SE_DOTA
+			case FIELD_EDICT:
+				type = PropEnt_Edict;
+				if (!pEdict)
+					return pContext->ThrowNativeError("Edict %d is invalid", params[1]);
+				break;
+#endif
+			default:
+				return pContext->ThrowNativeError("Data field %s is not an entity nor edict (%d)",
 					prop,
-					td->fieldType,
-					FIELD_EHANDLE);
+					td->fieldType);
 			}
 
 			CHECK_SET_PROP_DATA_OFFSET();
@@ -1623,6 +1680,7 @@ static cell_t SetEntPropEnt(IPluginContext *pContext, const cell_t *params)
 		}
 	case Prop_Send:
 		{
+			type = PropEnt_Handle;
 			FIND_PROP_SEND(DPT_Int, "integer");
 			break;
 		}
@@ -1632,28 +1690,54 @@ static cell_t SetEntPropEnt(IPluginContext *pContext, const cell_t *params)
 		}
 	}
 
-	CBaseHandle &hndl = *(CBaseHandle *)((uint8_t *)pEntity + offset);
-
-	if (params[4] == -1)
+	CBaseEntity *pOther = GetEntity(params[4]);
+	if (!pOther && params[4] != -1)
 	{
-		hndl.Set(NULL);
+		return pContext->ThrowNativeError("Entity %d (%d) is invalid", g_HL2.ReferenceToIndex(params[4]), params[4]);
 	}
-	else
-	{
-		CBaseEntity *pOther = GetEntity(params[4]);
 
-		if (!pOther)
+	switch (type)
+	{
+	case PropEnt_Handle:
 		{
-			return pContext->ThrowNativeError("Entity %d (%d) is invalid", g_HL2.ReferenceToIndex(params[4]), params[4]);
+			CBaseHandle &hndl = *(CBaseHandle *) ((uint8_t *) pEntity + offset);
+			hndl.Set((IHandleEntity *) pOther);
+
+			if (params[2] == Prop_Send && (pEdict != NULL))
+			{
+				g_HL2.SetEdictStateChanged(pEdict, offset);
+			}
 		}
 
-		IHandleEntity *pHandleEnt = (IHandleEntity *)pOther;
-		hndl.Set(pHandleEnt);
-	}
+		break;
 
-	if (params[2] == Prop_Send && (pEdict != NULL))
-	{
-		g_HL2.SetEdictStateChanged(pEdict, offset);
+	case PropEnt_Entity:
+		{
+			*(CBaseEntity **) ((uint8_t *) pEntity + offset) = pOther;
+			break;
+		}
+
+	case PropEnt_Edict:
+		{
+			edict_t *pOtherEdict = NULL;
+			if (pOther)
+			{
+				IServerNetworkable *pNetworkable = ((IServerUnknown *) pOther)->GetNetworkable();
+				if (!pNetworkable)
+				{
+					return pContext->ThrowNativeError("Entity %d (%d) does not have a valid edict", g_HL2.ReferenceToIndex(params[4]), params[4]);
+				}
+
+				pOtherEdict = pNetworkable->GetEdict();
+				if (!pOtherEdict || pOtherEdict->IsFree())
+				{
+					return pContext->ThrowNativeError("Entity %d (%d) does not have a valid edict", g_HL2.ReferenceToIndex(params[4]), params[4]);
+				}
+			}
+
+			*(edict_t **) ((uint8_t *) pEntity + offset) = pOtherEdict;
+			break;
+		}
 	}
 
 	return 1;
@@ -1802,7 +1886,6 @@ static cell_t GetEntPropString(IPluginContext *pContext, const cell_t *params)
 	char *prop;
 	int offset;
 	edict_t *pEdict;
-	bool bIsStringIndex;
 
 	int element = 0;
 	if (params[0] >= 6)
@@ -1817,12 +1900,13 @@ static cell_t GetEntPropString(IPluginContext *pContext, const cell_t *params)
 
 	pContext->LocalToString(params[3], &prop);
 
-	bIsStringIndex = false;
+	const char *src;
 
 	switch (params[2])
 	{
 	case Prop_Data:
 		{
+			bool bIsStringIndex = false;
 			typedescription_t *td;
 			
 			FIND_PROP_DATA(td);
@@ -1840,24 +1924,39 @@ static cell_t GetEntPropString(IPluginContext *pContext, const cell_t *params)
 
 			bIsStringIndex = (td->fieldType != FIELD_CHARACTER);
 
-			if (bIsStringIndex && (element < 0 || element >= td->fieldSize))
+			if (element != 0)
 			{
-				return pContext->ThrowNativeError("Element %d is out of bounds (Prop %s has %d elements).",
-					element,
-					prop,
-					td->fieldSize);
-			}
-			else if (element != 0)
-			{
-				return pContext->ThrowNativeError("Prop %s is not an array. Element %d is invalid.",
-					prop,
-					element);
+				if (bIsStringIndex)
+				{
+					if (element < 0 || element >= td->fieldSize)
+					{
+						return pContext->ThrowNativeError("Element %d is out of bounds (Prop %s has %d elements).",
+							element,
+							prop,
+							td->fieldSize);
+					}
+				}
+				else
+				{
+					return pContext->ThrowNativeError("Prop %s is not an array. Element %d is invalid.",
+						prop,
+						element);
+				}
 			}
 
 			offset = info.actual_offset;
 			if (bIsStringIndex)
 			{
 				offset += (element * (td->fieldSizeInBytes / td->fieldSize));
+
+				string_t idx;
+
+				idx = *(string_t *) ((uint8_t *) pEntity + offset);
+				src = (idx == NULL_STRING) ? "" : STRING(idx);
+			}
+			else
+			{
+				src = (char *) ((uint8_t *) pEntity + offset);
 			}
 			break;
 		}
@@ -1895,6 +1994,17 @@ static cell_t GetEntPropString(IPluginContext *pContext, const cell_t *params)
 					prop,
 					element);
  			}
+
+			if (info.prop->GetProxyFn())
+			{
+				DVariant var;
+				info.prop->GetProxyFn()(info.prop, pEntity, (const void *) ((intptr_t) pEntity + offset), &var, element, params[1]);
+				src = var.m_pString;
+			}
+			else
+			{
+				src = (char *) ((uint8_t *) pEntity + offset);
+			}
 			
 			break;
 		}
@@ -1905,22 +2015,7 @@ static cell_t GetEntPropString(IPluginContext *pContext, const cell_t *params)
 	}
 
 	size_t len;
-	const char *src; 
-	
-	if (!bIsStringIndex)
-	{
-		src = (char *)((uint8_t *)pEntity + offset);
-	}
-	else
-	{
-		string_t idx;
-
-		idx = *(string_t *)((uint8_t *)pEntity + offset);
-		src = (idx == NULL_STRING) ? "" : STRING(idx);
-	}
-
 	pContext->StringToLocalUTF8(params[4], params[5], src, &len);
-
 	return len;
 }
 
@@ -1931,6 +2026,13 @@ static cell_t SetEntPropString(IPluginContext *pContext, const cell_t *params)
 	int offset;
 	int maxlen;
 	edict_t *pEdict;
+	bool bIsStringIndex;
+
+	int element = 0;
+	if (params[0] >= 5)
+	{
+		element = params[5];
+	}
 
 	if (!IndexToAThings(params[1], &pEntity, &pEdict))
 	{
@@ -1954,17 +2056,52 @@ static cell_t SetEntPropString(IPluginContext *pContext, const cell_t *params)
 			}
 			
 			typedescription_t *td = info.prop;
-			if (td->fieldType != FIELD_CHARACTER)
+			if (td->fieldType != FIELD_CHARACTER
+				&& td->fieldType != FIELD_STRING
+				&& td->fieldType != FIELD_MODELNAME
+				&& td->fieldType != FIELD_SOUNDNAME)
 			{
 				return pContext->ThrowNativeError("Property \"%s\" is not a valid string", prop);
 			}
+
 			offset = info.actual_offset;
-			maxlen = td->fieldSize;
+
+			bIsStringIndex = (td->fieldType != FIELD_CHARACTER);
+
+			if (element != 0)
+			{
+				if (bIsStringIndex)
+				{
+					if (element < 0 || element >= td->fieldSize)
+					{
+						return pContext->ThrowNativeError("Element %d is out of bounds (Prop %s has %d elements).",
+							element,
+							prop,
+							td->fieldSize);
+					}
+				}
+				else
+				{
+					return pContext->ThrowNativeError("Prop %s is not an array. Element %d is invalid.",
+						prop,
+						element);
+				}
+			}
+
+			if (bIsStringIndex)
+			{
+				offset += (element * (td->fieldSizeInBytes / td->fieldSize));
+			}
+			else
+			{
+				maxlen = td->fieldSize;
+			}
+
 			break;
 		}
 	case Prop_Send:
 		{
-			char *prop;
+			sm_sendprop_info_t info;
 			IServerUnknown *pUnk = (IServerUnknown *)pEntity;
 			IServerNetworkable *pNet = pUnk->GetNetworkable();
 			if (!pNet)
@@ -1972,17 +2109,38 @@ static cell_t SetEntPropString(IPluginContext *pContext, const cell_t *params)
 				return pContext->ThrowNativeError("The edict is not networkable");
 			}
 			pContext->LocalToString(params[3], &prop);
-			SendProp *pSend = g_HL2.FindInSendTable(pNet->GetServerClass()->GetName(), prop);
-			if (!pSend)
+			if (!g_HL2.FindSendPropInfo(pNet->GetServerClass()->GetName(), prop, &info))
 			{
 				return pContext->ThrowNativeError("Property \"%s\" not found for entity %d", prop, params[1]);
 			}
-			if (pSend->GetType() != DPT_String)
+
+			offset = info.prop->GetOffset();
+
+			if (info.prop->GetType() != DPT_String)
 			{
 				return pContext->ThrowNativeError("Property \"%s\" is not a valid string", prop);
 			}
-			offset = pSend->GetOffset();
+			else if (element != 0)
+			{
+				return pContext->ThrowNativeError("SendProp %s is not an array. Element %d is invalid.",
+					prop,
+					element);
+			}
+
+			bIsStringIndex = false;
+			if (info.prop->GetProxyFn())
+			{
+				DVariant var;
+				info.prop->GetProxyFn()(info.prop, pEntity, (const void *) ((intptr_t) pEntity + offset), &var, element, params[1]);
+				if (var.m_pString == ((string_t *) ((intptr_t) pEntity + offset))->ToCStr())
+				{
+					bIsStringIndex = true;
+				}
+			}
+
+			// Only used if not string index.
 			maxlen = DT_MAX_STRING_BUFFERSIZE;
+			
 			break;
 		}
 	default:
@@ -1992,10 +2150,23 @@ static cell_t SetEntPropString(IPluginContext *pContext, const cell_t *params)
 	}
 
 	char *src;
-	char *dest = (char *)((uint8_t *)pEntity + offset);
-
+	size_t len;
 	pContext->LocalToString(params[4], &src);
-	size_t len = strncopy(dest, src, maxlen);
+
+	if (bIsStringIndex)
+	{
+#if SOURCE_ENGINE < SE_ORANGEBOX
+		return pContext->ThrowNativeError("Cannot set %s. Setting string_t values not supported on this game.", prop);
+#else
+		*(string_t *) ((intptr_t) pEntity + offset) = g_HL2.AllocPooledString(src);
+		len = strlen(src);
+#endif
+	}
+	else
+	{
+		char *dest = (char *) ((uint8_t *) pEntity + offset);
+		len = ke::SafeStrcpy(dest, maxlen, src);
+	}
 
 	if (params[2] == Prop_Send && (pEdict != NULL))
 	{
@@ -2074,7 +2245,8 @@ static int32_t SDKEntFlagToSMEntFlag(int flag)
 #if SOURCE_ENGINE == SE_ALIENSWARM
 		case FL_FREEZING:
 			return ENTFLAG_FREEZING;
-#elif SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_SDK2013 || SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_TF2
+#elif SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_SDK2013 \
+	|| SOURCE_ENGINE == SE_BMS || SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_TF2
 		case FL_EP2V_UNKNOWN:
 			return ENTFLAG_EP2V_UNKNOWN1;
 #endif
@@ -2152,7 +2324,8 @@ static int32_t SMEntFlagToSDKEntFlag(int32_t flag)
 #if SOURCE_ENGINE == SE_ALIENSWARM
 		case ENTFLAG_FREEZING:
 			return FL_FREEZING;
-#elif SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_SDK2013 || SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_TF2
+#elif SOURCE_ENGINE == SE_HL2DM || SOURCE_ENGINE == SE_DODS || SOURCE_ENGINE == SE_SDK2013 \
+	|| SOURCE_ENGINE == SE_BMS || SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_TF2
 		case ENTFLAG_EP2V_UNKNOWN1:
 			return FL_EP2V_UNKNOWN;
 #endif

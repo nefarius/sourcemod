@@ -35,6 +35,7 @@
 #include <am-refcounting.h>
 #include <sm_stringhashmap.h>
 #include "sm_memtable.h"
+#include <IHandleSys.h>
 
 HandleType_t htCellTrie;
 HandleType_t htSnapshot;
@@ -63,11 +64,11 @@ public:
 		: control_(0)
 	{
 	}
-	Entry(ke::Moveable<Entry> other)
+	Entry(Entry &&other)
 	{
-		control_ = other->control_;
-		data_ = other->data_;
-		other->control_ = 0;
+		control_ = other.control_;
+		data_ = other.data_;
+		other.control_ = 0;
 	}
 
 	~Entry()
@@ -121,7 +122,7 @@ public:
 	}
 
 private:
-	Entry(const Entry &other) KE_DELETE;
+	Entry(const Entry &other) = delete;
 
 	ArrayInfo *ensureArray(size_t bytes) {
 		ArrayInfo *array = raw();
@@ -163,7 +164,7 @@ private:
 	cell_t data_;
 };
 
-struct CellTrie : public ke::Refcounted<CellTrie>
+struct CellTrie
 {
 	StringHashMap<Entry> map;
 };
@@ -204,8 +205,7 @@ public: //IHandleTypeDispatch
 	{
 		if (type == htCellTrie)
 		{
-			CellTrie *pTrie = (CellTrie *)object;
-			pTrie->Release();
+			delete (CellTrie *)object;
 		} else {
 			TrieSnapshot *snapshot = (TrieSnapshot *)object;
 			delete snapshot;
@@ -646,9 +646,28 @@ REGISTER_NATIVES(trieNatives)
 	{"SetTrieString",			SetTrieString},
 	{"SetTrieValue",			SetTrieValue},
 	{"GetTrieSize",				GetTrieSize},
+
 	{"CreateTrieSnapshot",		CreateTrieSnapshot},
 	{"TrieSnapshotLength",		TrieSnapshotLength},
 	{"TrieSnapshotKeyBufferSize", TrieSnapshotKeyBufferSize},
 	{"GetTrieSnapshotKey",		GetTrieSnapshotKey},
+
+	// Transitional syntax support.
+	{"StringMap.StringMap",		CreateTrie},
+	{"StringMap.Clear",			ClearTrie},
+	{"StringMap.GetArray",		GetTrieArray},
+	{"StringMap.GetString",		GetTrieString},
+	{"StringMap.GetValue",		GetTrieValue},
+	{"StringMap.Remove",		RemoveFromTrie},
+	{"StringMap.SetArray",		SetTrieArray},
+	{"StringMap.SetString",		SetTrieString},
+	{"StringMap.SetValue",		SetTrieValue},
+	{"StringMap.Size.get",		GetTrieSize},
+	{"StringMap.Snapshot",		CreateTrieSnapshot},
+
+	{"StringMapSnapshot.Length.get",	TrieSnapshotLength},
+	{"StringMapSnapshot.KeyBufferSize", TrieSnapshotKeyBufferSize},
+	{"StringMapSnapshot.GetKey",		GetTrieSnapshotKey},
+
 	{NULL,						NULL},
 };

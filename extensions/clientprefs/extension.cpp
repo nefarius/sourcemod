@@ -219,7 +219,7 @@ void ClientPrefs::DatabaseConnect()
 	char error[256];
 	int errCode = 0;
 
-	Database = Newborn<IDatabase>(Driver->Connect(DBInfo, true, error, sizeof(error)));
+	Database = AdoptRef(Driver->Connect(DBInfo, true, error, sizeof(error)));
 
 	if (!Database)
 	{
@@ -319,7 +319,7 @@ bool ClientPrefs::AddQueryToQueue(TQueryOp *query)
 		AutoLock lock(&queryLock);
 		if (!Database)
 		{
-			cachedQueries.push_back(query);
+			cachedQueries.append(query);
 			return false;
 		}
 		
@@ -339,10 +339,9 @@ void ClientPrefs::ProcessQueryCache()
 	if (!Database)
 		return;
 
-	TQueryOp *op;
-	for (SourceHook::List<TQueryOp *>::iterator iter = cachedQueries.begin(); iter != cachedQueries.end(); iter++)
+	for (size_t iter = 0; iter < cachedQueries.length(); ++iter)
 	{
-		op = *iter;
+		TQueryOp *op = cachedQueries[iter];
 		op->SetDatabase(Database);
 		dbi->AddToThreadQueue(op, PrioQueue_Normal);
 	}
@@ -350,32 +349,11 @@ void ClientPrefs::ProcessQueryCache()
 	cachedQueries.clear();
 }
 
-size_t IsAuthIdConnected(char *authID)
+const char *GetPlayerCompatAuthId(IGamePlayer *pPlayer)
 {
-	IGamePlayer *player;
-	const char *authString;
-	
-	for (int playerIndex = playerhelpers->GetMaxClients()+1; --playerIndex > 0;)
-	{
-		player = playerhelpers->GetGamePlayer(playerIndex);
-		if (player == NULL || !player->IsConnected())
-		{
-			continue;
-		}
-		
-		authString = player->GetAuthString();
-		
-		if (authString == NULL || authString[0] == '\0')
-		{
-			continue;
-		}
-
-		if (strcmp(authString, authID) == 0)
-		{
-			return playerIndex;
-		}
-	}
-	return 0;
+	/* For legacy reasons, OnClientAuthorized gives the Steam2 id here if using Steam auth */
+	const char *steamId = pPlayer->GetSteam2Id();
+	return steamId ? steamId : pPlayer->GetAuthString();
 }
 
 void ClientPrefs::CatchLateLoadClients()
@@ -395,25 +373,21 @@ void ClientPrefs::CatchLateLoadClients()
 			continue;
 		}
 
-		g_CookieManager.OnClientAuthorized(i, pPlayer->GetAuthString());
+		g_CookieManager.OnClientAuthorized(i, GetPlayerCompatAuthId(pPlayer));
 	}
 }
 
 void ClientPrefs::ClearQueryCache(int serial)
 {
 	AutoLock lock(&queryLock);
-	for (SourceHook::List<TQueryOp *>::iterator iter = cachedQueries.begin(); iter != cachedQueries.end();)
+	for (size_t iter = 0; iter < cachedQueries.length(); ++iter)
 	{
-		TQueryOp *op = *iter;
+		TQueryOp *op = cachedQueries[iter];
 		if (op && op->PullQueryType() == Query_SelectData && op->PullQuerySerial() == serial)
  		{
 			op->Destroy();
-			iter = cachedQueries.erase(iter);
- 		}
- 		else
- 		{
-			iter++;
- 		}
+			cachedQueries.remove(iter--);
+		}
  	}
 }
 

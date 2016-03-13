@@ -35,7 +35,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include "smsdk_ext.h"
-#include "sh_list.h"
+#include "am-vector.h"
 
 #include <am-thread-utils.h>
 #include <am-refcounting.h>
@@ -151,14 +151,14 @@ public:
 	IdentityToken_t *GetIdentity() const;
 public:
 	IDBDriver *Driver;
-	ke::Ref<IDatabase> Database;
+	ke::RefPtr<IDatabase> Database;
 	IPhraseCollection *phrases;
 	const DatabaseInfo *DBInfo;
 
 	bool databaseLoading;
 
 private:
-	SourceHook::List<TQueryOp *> cachedQueries;
+	ke::Vector<TQueryOp *> cachedQueries;
 	ke::Mutex queryLock;
 	IdentityToken_t *identity;
 };
@@ -177,11 +177,11 @@ class CookieIteratorHandler : public IHandleTypeDispatch
 public:
 	void OnHandleDestroy(HandleType_t type, void *object)
 	{
-		delete (SourceHook::List<Cookie *>::iterator *)object;
+		delete (size_t *)object;
 	}
 };
 
-size_t IsAuthIdConnected(char *authID);
+const char *GetPlayerCompatAuthId(IGamePlayer *pPlayer);
 
 extern sp_nativeinfo_t g_ClientPrefNatives[];
 

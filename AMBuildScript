@@ -23,20 +23,21 @@ PossibleSDKs = {
   'hl2dm':  SDK('HL2SDKHL2DM', '2.hl2dm', '7', 'HL2DM', WinLinuxMac, 'hl2dm'),
   'dods': SDK('HL2SDKDODS', '2.dods', '8', 'DODS', WinLinuxMac, 'dods'),
   'sdk2013': SDK('HL2SDK2013', '2.sdk2013', '9', 'SDK2013', WinLinuxMac, 'sdk2013'),
-  'tf2':  SDK('HL2SDKTF2', '2.tf2', '10', 'TF2', WinLinuxMac, 'tf2'),
-  'l4d':  SDK('HL2SDKL4D', '2.l4d', '11', 'LEFT4DEAD', WinLinuxMac, 'l4d'),
-  'nucleardawn': SDK('HL2SDKND', '2.nd', '12', 'NUCLEARDAWN', WinLinuxMac, 'nucleardawn'),
-  'l4d2': SDK('HL2SDKL4D2', '2.l4d2', '14', 'LEFT4DEAD2', WinLinuxMac, 'l4d2'),
+  'tf2':  SDK('HL2SDKTF2', '2.tf2', '11', 'TF2', WinLinuxMac, 'tf2'),
+  'l4d':  SDK('HL2SDKL4D', '2.l4d', '12', 'LEFT4DEAD', WinLinuxMac, 'l4d'),
+  'nucleardawn': SDK('HL2SDKND', '2.nd', '13', 'NUCLEARDAWN', WinLinuxMac, 'nucleardawn'),
+  'l4d2': SDK('HL2SDKL4D2', '2.l4d2', '15', 'LEFT4DEAD2', WinLinuxMac, 'l4d2'),
   'darkm':  SDK('HL2SDK-DARKM', '2.darkm', '2', 'DARKMESSIAH', WinOnly, 'darkm'),
-  'swarm':  SDK('HL2SDK-SWARM', '2.swarm', '15', 'ALIENSWARM', WinOnly, 'swarm'),
+  'swarm':  SDK('HL2SDK-SWARM', '2.swarm', '16', 'ALIENSWARM', WinOnly, 'swarm'),
   'bgt':  SDK('HL2SDK-BGT', '2.bgt', '4', 'BLOODYGOODTIME', WinOnly, 'bgt'),
   'eye':  SDK('HL2SDK-EYE', '2.eye', '5', 'EYE', WinOnly, 'eye'),
-  'csgo': SDK('HL2SDKCSGO', '2.csgo', '19', 'CSGO', WinLinuxMac, 'csgo'),
-  'dota': SDK('HL2SDKDOTA', '2.dota', '20', 'DOTA', WinLinuxMac, 'dota'),
-  'portal2':  SDK('HL2SDKPORTAL2', '2.portal2', '16', 'PORTAL2', [], 'portal2'),
-  'blade':  SDK('HL2SDKBLADE', '2.blade', '17', 'BLADE', WinLinux, 'blade'),
-  'insurgency':  SDK('HL2SDKINSURGENCY', '2.insurgency', '18', 'INSURGENCY', WinLinuxMac, 'insurgency'),
-  'contagion':  SDK('HL2SDKCONTAGION', '2.contagion', '13', 'CONTAGION', WinOnly, 'contagion'),
+  'csgo': SDK('HL2SDKCSGO', '2.csgo', '20', 'CSGO', WinLinuxMac, 'csgo'),
+  'dota': SDK('HL2SDKDOTA', '2.dota', '21', 'DOTA', [], 'dota'),
+  'portal2':  SDK('HL2SDKPORTAL2', '2.portal2', '17', 'PORTAL2', [], 'portal2'),
+  'blade':  SDK('HL2SDKBLADE', '2.blade', '18', 'BLADE', WinLinux, 'blade'),
+  'insurgency':  SDK('HL2SDKINSURGENCY', '2.insurgency', '19', 'INSURGENCY', WinLinuxMac, 'insurgency'),
+  'contagion':  SDK('HL2SDKCONTAGION', '2.contagion', '14', 'CONTAGION', WinOnly, 'contagion'),
+  'bms':  SDK('HL2SDKBMS', '2.bms', '10', 'BMS', WinLinux, 'bms'),
 }
 
 def ResolveEnvPath(env, folder):
@@ -73,7 +74,9 @@ class SMConfig(object):
     self.versionlib = None
 
   def use_auto_versioning(self):
-    return builder.backend == 'amb2'
+    if builder.backend != 'amb2':
+      return False
+    return not getattr(builder.options, 'disable_auto_versioning', False)
 
   @property
   def tag(self):
@@ -118,7 +121,6 @@ class SMConfig(object):
     if len(self.sdks) < 1:
       raise Exception('At least one SDK must be available.')
 
-   
     if builder.options.mms_path:
       self.mms_root = builder.options.mms_path
     else:
@@ -150,136 +152,165 @@ class SMConfig(object):
     cxx = builder.DetectCompilers()
 
     if cxx.like('gcc'):
-      cxx.defines += [
-        'stricmp=strcasecmp',
-        '_stricmp=strcasecmp',
-        '_snprintf=snprintf',
-        '_vsnprintf=vsnprintf',
-        'HAVE_STDINT_H',
-        'GNUC',
-      ]
-      cxx.cflags += [
-        '-pipe',
-        '-fno-strict-aliasing',
-        '-Wall',
-        '-Werror',
-        '-Wno-uninitialized',
-        '-Wno-unused',
-        '-Wno-switch',
-        '-Wno-format',
-        '-Wno-format-security',
-        '-msse',
-        '-m32',
-      ]
-
-      have_gcc = cxx.vendor == 'gcc'
-      have_clang = cxx.vendor == 'clang'
-      if have_clang or (have_gcc and cxx.version >= '4'):
-        cxx.cflags += ['-fvisibility=hidden']
-        cxx.cxxflags += ['-fvisibility-inlines-hidden']
-        if have_clang or (have_gcc and cxx.version >= '4.6'):
-          cxx.cflags += ['-Wno-narrowing']
-        if (have_gcc and cxx.version >= '4.7') or (have_clang and cxx.version >= '3'):
-          cxx.cxxflags += ['-Wno-delete-non-virtual-dtor']
-
-      cxx.linkflags += ['-m32']
-      cxx.cxxflags += [
-        '-fno-exceptions',
-        '-fno-threadsafe-statics',
-        '-Wno-non-virtual-dtor',
-        '-Wno-overloaded-virtual',
-      ]
-
-      if have_gcc:
-        cxx.cflags += ['-mfpmath=sse']
+      self.configure_gcc(cxx)
     elif cxx.vendor == 'msvc':
-      if builder.options.debug == '1':
-        cxx.cflags += ['/MTd']
-        cxx.linkflags += ['/NODEFAULTLIB:libcmt']
-      else:
-        cxx.cflags += ['/MT']
-      cxx.defines += [
-        '_CRT_SECURE_NO_DEPRECATE',
-        '_CRT_SECURE_NO_WARNINGS',
-        '_CRT_NONSTDC_NO_DEPRECATE',
-        '_ITERATOR_DEBUG_LEVEL=0',
-      ]
-      cxx.cflags += [
-        '/W3',
-      ]
-      cxx.cxxflags += [
-        '/EHsc',
-        '/GR-',
-        '/TP',
-      ]
-      cxx.linkflags += [
-        '/MACHINE:X86',
-        '/SUBSYSTEM:WINDOWS',
-        'kernel32.lib',
-        'user32.lib',
-        'gdi32.lib',
-        'winspool.lib',
-        'comdlg32.lib',
-        'advapi32.lib',
-        'shell32.lib',
-        'ole32.lib',
-        'oleaut32.lib',
-        'uuid.lib',
-        'odbc32.lib',
-        'odbccp32.lib',
-      ] 
+      self.configure_msvc(cxx)
 
-    # Optimization
+    # Optimizaiton
     if builder.options.opt == '1':
       cxx.defines += ['NDEBUG']
-      if cxx.like('gcc'):
-        cxx.cflags += ['-O3']
-      elif cxx.like('msvc'):
-        cxx.cflags += ['/Ox']
-        cxx.linkflags += ['/OPT:ICF', '/OPT:REF']
 
     # Debugging
     if builder.options.debug == '1':
       cxx.defines += ['DEBUG', '_DEBUG']
-      if cxx.like('msvc'):
-        cxx.cflags += ['/Od', '/RTC1']
-        if cxx.version >= 1600:
-          cxx.cflags += ['/d2Zi+']
-
-    # This needs to be after our optimization flags which could otherwise disable it.
-    if cxx.vendor == 'msvc':
-      # Don't omit the frame pointer.
-      cxx.cflags += ['/Oy-']
 
     # Platform-specifics
     if builder.target_platform == 'linux':
-      cxx.defines += ['_LINUX', 'POSIX']
-      if cxx.vendor == 'gcc':
-        cxx.linkflags += ['-static-libgcc']
-      elif cxx.vendor == 'clang':
-        cxx.linkflags += ['-lgcc_eh']
+      self.configure_linux(cxx)
     elif builder.target_platform == 'mac':
-      cxx.defines += ['OSX', '_OSX', 'POSIX']
-      cxx.cflags += ['-mmacosx-version-min=10.5']
-      cxx.linkflags += [
-        '-mmacosx-version-min=10.5',
-        '-arch', 'i386',
-        '-lstdc++',
-        '-stdlib=libstdc++',
-      ]
-      cxx.cxxflags += ['-stdlib=libstdc++']
+      self.configure_mac(cxx)
     elif builder.target_platform == 'windows':
-      cxx.defines += ['WIN32', '_WINDOWS']
+      self.configure_windows(cxx)
 
     # Finish up.
     cxx.defines += [
       'SOURCEMOD_BUILD',
       'SM_USE_VERSIONLIB',
     ]
+    cxx.includes += [
+      os.path.join(builder.sourcePath, 'public'),
+    ]
     if self.use_auto_versioning():
       cxx.defines += ['SM_GENERATED_BUILD']
-      cxx.includes += [os.path.join(builder.buildPath, 'includes')]
-      cxx.includes += [os.path.join(builder.sourcePath, 'versionlib')]
+      cxx.includes += [
+        os.path.join(builder.buildPath, 'includes'),
+        os.path.join(builder.sourcePath, 'versionlib'),
+      ]
+
+  def configure_gcc(self, cxx):
+    cxx.defines += [
+      'stricmp=strcasecmp',
+      '_stricmp=strcasecmp',
+      '_snprintf=snprintf',
+      '_vsnprintf=vsnprintf',
+      'HAVE_STDINT_H',
+      'GNUC',
+    ]
+    cxx.cflags += [
+      '-pipe',
+      '-fno-strict-aliasing',
+      '-Wall',
+      '-Werror',
+      '-Wno-unused',
+      '-Wno-switch',
+      '-Wno-array-bounds',
+      '-msse',
+      '-m32',
+      '-fvisibility=hidden',
+    ]
+    cxx.cxxflags += [
+      '-std=c++11',
+      '-fno-exceptions',
+      '-fno-threadsafe-statics',
+      '-Wno-non-virtual-dtor',
+      '-Wno-overloaded-virtual',
+      '-fvisibility-inlines-hidden',
+    ]
+    cxx.linkflags += ['-m32']
+
+    have_gcc = cxx.vendor == 'gcc'
+    have_clang = cxx.vendor == 'clang'
+    if cxx.version >= 'clang-3.6':
+      cxx.cxxflags += ['-Wno-inconsistent-missing-override']
+    if have_clang or (cxx.version >= 'gcc-4.6'):
+      cxx.cflags += ['-Wno-narrowing']
+    if have_clang or (cxx.version >= 'gcc-4.7'):
+      cxx.cxxflags += ['-Wno-delete-non-virtual-dtor']
+    if cxx.version >= 'gcc-4.8':
+      cxx.cflags += ['-Wno-unused-result']
+
+    if have_clang:
+      cxx.cxxflags += ['-Wno-implicit-exception-spec-mismatch']
+      if cxx.version >= 'apple-clang-5.1' or cxx.version >= 'clang-3.4':
+        cxx.cxxflags += ['-Wno-deprecated-register']
+      else:
+        cxx.cxxflags += ['-Wno-deprecated']
+      cxx.cflags += ['-Wno-sometimes-uninitialized']
+
+    if have_gcc:
+      cxx.cflags += ['-mfpmath=sse']
+
+    if builder.options.opt == '1':
+      cxx.cflags += ['-O3']
+
+  def configure_msvc(self, cxx):
+    if builder.options.debug == '1':
+      cxx.cflags += ['/MTd']
+      cxx.linkflags += ['/NODEFAULTLIB:libcmt']
+    else:
+      cxx.cflags += ['/MT']
+    cxx.defines += [
+      '_CRT_SECURE_NO_DEPRECATE',
+      '_CRT_SECURE_NO_WARNINGS',
+      '_CRT_NONSTDC_NO_DEPRECATE',
+      '_ITERATOR_DEBUG_LEVEL=0',
+    ]
+    cxx.cflags += [
+      '/W3',
+    ]
+    cxx.cxxflags += [
+      '/EHsc',
+      '/GR-',
+      '/TP',
+    ]
+    cxx.linkflags += [
+      '/MACHINE:X86',
+      'kernel32.lib',
+      'user32.lib',
+      'gdi32.lib',
+      'winspool.lib',
+      'comdlg32.lib',
+      'advapi32.lib',
+      'shell32.lib',
+      'ole32.lib',
+      'oleaut32.lib',
+      'uuid.lib',
+      'odbc32.lib',
+      'odbccp32.lib',
+    ]
+
+    if builder.options.opt == '1':
+      cxx.cflags += ['/Ox', '/Zo']
+      cxx.linkflags += ['/OPT:ICF', '/OPT:REF']
+
+    if builder.options.debug == '1':
+      cxx.cflags += ['/Od', '/RTC1']
+
+    # This needs to be after our optimization flags which could otherwise disable it.
+    # Don't omit the frame pointer.
+    cxx.cflags += ['/Oy-']
+
+  def configure_linux(self, cxx):
+    cxx.defines += ['_LINUX', 'POSIX']
+    cxx.linkflags += ['-Wl,--exclude-libs,ALL', '-lm']
+    if cxx.vendor == 'gcc':
+      cxx.linkflags += ['-static-libgcc']
+    elif cxx.vendor == 'clang':
+      cxx.linkflags += ['-lgcc_eh']
+
+  def configure_mac(self, cxx):
+    cxx.defines += ['OSX', '_OSX', 'POSIX']
+    cxx.cflags += ['-mmacosx-version-min=10.5']
+    cxx.linkflags += [
+      '-mmacosx-version-min=10.5',
+      '-arch', 'i386',
+      '-lstdc++',
+      '-stdlib=libstdc++',
+    ]
+    cxx.cxxflags += ['-stdlib=libstdc++']
+
+  def configure_windows(self, cxx):
+    cxx.defines += ['WIN32', '_WINDOWS']
 
   def AddVersioning(self, binary):
     if builder.target_platform == 'windows':
@@ -303,19 +334,23 @@ class SMConfig(object):
 
   def Library(self, context, name):
     binary = context.compiler.Library(name)
+    if binary.compiler.like('msvc'):
+      binary.compiler.linkflags += ['/SUBSYSTEM:WINDOWS']
     return self.AddVersioning(binary)
 
   def Program(self, context, name):
     binary = context.compiler.Program(name)
+    if binary.compiler.like('msvc'):
+      binary.compiler.linkflags += ['/SUBSYSTEM:CONSOLE']
     return self.AddVersioning(binary)
 
   def ConfigureForExtension(self, context, compiler):
     compiler.cxxincludes += [
       os.path.join(context.currentSourcePath),
       os.path.join(context.currentSourcePath, 'sdk'),
-      os.path.join(builder.sourcePath, 'public'),
       os.path.join(builder.sourcePath, 'public', 'extensions'),
-      os.path.join(builder.sourcePath, 'public', 'sourcepawn'),
+      os.path.join(builder.sourcePath, 'sourcepawn', 'include'),
+      os.path.join(builder.sourcePath, 'public', 'amtl', 'amtl'),
       os.path.join(builder.sourcePath, 'public', 'amtl'),
     ]
     return compiler
@@ -360,7 +395,7 @@ class SMConfig(object):
 
     compiler.defines += ['SOURCE_ENGINE=' + sdk.code]
 
-    if sdk.name == 'sdk2013' and compiler.like('gcc'):
+    if sdk.name in ['sdk2013', 'bms'] and compiler.like('gcc'):
       # The 2013 SDK already has these in public/tier0/basetypes.h
       compiler.defines.remove('stricmp=strcasecmp')
       compiler.defines.remove('_stricmp=strcasecmp')
@@ -377,9 +412,12 @@ class SMConfig(object):
     if sdk.name in ['blade', 'insurgency', 'csgo', 'dota']:
       compiler.defines += ['NETWORK_VARS_ENABLED']
 
-    if sdk.name in ['css', 'hl2dm', 'dods', 'sdk2013', 'tf2', 'l4d', 'nucleardawn', 'l4d2', 'dota']:
+    if sdk.name in ['css', 'hl2dm', 'dods', 'sdk2013', 'bms', 'tf2', 'l4d', 'nucleardawn', 'l4d2', 'dota']:
       if builder.target_platform in ['linux', 'mac']:
         compiler.defines += ['NO_HOOK_MALLOC', 'NO_MALLOC_OVERRIDE']
+
+    if sdk.name == 'csgo' and builder.target_platform == 'linux':
+      compiler.linkflags += ['-lstdc++']
 
     for path in paths:
       compiler.cxxincludes += [os.path.join(sdk.path, *path)]
@@ -387,18 +425,18 @@ class SMConfig(object):
     if builder.target_platform == 'linux':
       if sdk.name == 'episode1':
         lib_folder = os.path.join(sdk.path, 'linux_sdk')
-      elif sdk.name == 'sdk2013':
+      elif sdk.name in ['sdk2013', 'bms']:
         lib_folder = os.path.join(sdk.path, 'lib', 'public', 'linux32')
       else:
         lib_folder = os.path.join(sdk.path, 'lib', 'linux')
     elif builder.target_platform == 'mac':
-      if sdk.name == 'sdk2013':
+      if sdk.name in ['sdk2013', 'bms']:
         lib_folder = os.path.join(sdk.path, 'lib', 'public', 'osx32')
       else:
         lib_folder = os.path.join(sdk.path, 'lib', 'mac')
 
     if builder.target_platform in ['linux', 'mac']:
-      if sdk.name == 'sdk2013':
+      if sdk.name in ['sdk2013', 'bms']:
         compiler.postlink += [
           compiler.Dep(os.path.join(lib_folder, 'tier1.a')),
           compiler.Dep(os.path.join(lib_folder, 'mathlib.a'))
@@ -416,8 +454,7 @@ class SMConfig(object):
 
     dynamic_libs = []
     if builder.target_platform == 'linux':
-      compiler.linkflags[0:0] = ['-lm']
-      if sdk.name in ['css', 'hl2dm', 'dods', 'tf2', 'sdk2013', 'nucleardawn', 'l4d2']:
+      if sdk.name in ['css', 'hl2dm', 'dods', 'tf2', 'sdk2013', 'bms', 'nucleardawn', 'l4d2', 'insurgency']:
         dynamic_libs = ['libtier0_srv.so', 'libvstdlib_srv.so']
       elif sdk.name in ['l4d', 'blade', 'insurgency', 'csgo', 'dota']:
         dynamic_libs = ['libtier0.so', 'libvstdlib.so']
@@ -478,6 +515,18 @@ if SM.use_auto_versioning():
     { 'SM': SM }
   )
 
+# Build SourcePawn externally.
+SourcePawn = builder.RunScript('sourcepawn/AMBuildScript', {})
+SP = SourcePawn(
+  root = SM,
+  amtl = os.path.join(builder.sourcePath, 'public', 'amtl'),
+)
+SP.BuildCore()
+SM.spcomp = SP.spcomp
+SM.binaries += [
+  SP.libsourcepawn
+]
+
 BuildScripts = [
   'loader/AMBuilder',
   'core/AMBuilder',
@@ -495,8 +544,6 @@ BuildScripts = [
   'extensions/tf2/AMBuilder',
   'extensions/topmenus/AMBuilder',
   'extensions/updater/AMBuilder',
-  'sourcepawn/compiler/AMBuilder',
-  'sourcepawn/jit/AMBuilder',
 ]
 
 if builder.backend == 'amb2':

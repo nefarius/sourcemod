@@ -1,4 +1,4 @@
-# vim: set ts=8 sts=2 sw=2 tw=99 et ft=python: 
+# vim: set ts=8 sts=2 sw=2 tw=99 et ft=python:
 import os
 
 builder.SetBuildFolder('package')
@@ -51,10 +51,12 @@ for cxx_task in SM.extensions:
   builder.AddCopy(cxx_task.binary, folder_map['addons/sourcemod/extensions'])
 builder.AddCopy(SM.spcomp.binary, folder_map['addons/sourcemod/scripting'])
 
-# Copy version_auto.inc.
-for header in SM.generated_headers:
-  if 'version_auto.inc' in header.path:
-    builder.AddCopy(header, folder_map['addons/sourcemod/scripting/include'])
+
+if SM.use_auto_versioning():
+  # Copy version_auto.inc.
+  for header in SM.generated_headers:
+    if 'version_auto.inc' in header.path:
+      builder.AddCopy(header, folder_map['addons/sourcemod/scripting/include'])
 
 # Export PDB files. We write to a file in the build folder which is pretty
 # verboten, but it's okay if it's in the root since AMBuild will never try
@@ -148,18 +150,20 @@ CopyFiles('gamedata/sdkhooks.games', 'addons/sourcemod/gamedata/sdkhooks.games',
     'game.ag2.txt',
     'game.alienswarm.txt',
     'game.aoc.txt',
+    'game.bms.txt',
     'game.cspromod.txt',
     'game.cstrike.txt',
     'game.dinodday.txt',
     'game.empires.txt',
     'game.ff.txt',
     'game.fof.txt',
-    'game.garrysmod.txt',
     'game.gesource.txt',
     'game.hidden.txt',
     'game.hl2ctf.txt',
     'game.insurgency.txt',
+	'game.kz.txt',
     'game.l4d2.txt',
+	'game.modularcombat.txt',
     'game.neotokyo.txt',
     'game.nmrih.txt',
     'game.nucleardawn.txt',
@@ -194,6 +198,7 @@ CopyFiles('gamedata/sdktools.games', 'addons/sourcemod/gamedata/sdktools.games',
     'game.alienswarm.txt',
     'game.aoc.txt',
     'game.bg2.txt',
+    'game.bms.txt',
     'game.cspromod.txt',
     'game.cstrike.txt',
     'game.dinodday.txt',
@@ -204,14 +209,15 @@ CopyFiles('gamedata/sdktools.games', 'addons/sourcemod/gamedata/sdktools.games',
     'game.fas.txt',
     'game.ff.txt',
     'game.fof.txt',
-    'game.garrysmod.txt',
     'game.gesource.txt',
     'game.hidden.txt',
     'game.hl2ctf.txt',
     'game.hl2mp.txt',
     'game.insurgency.txt',
     'game.ios.txt',
+	'game.kz.txt',
     'game.left4dead2.txt',
+	'game.modularcombat.txt',
     'game.neotokyo.txt',
     'game.nmrih.txt',
     'game.nucleardawn.txt',
@@ -232,6 +238,7 @@ CopyFiles('gamedata/core.games', 'addons/sourcemod/gamedata/core.games',
     'common.games.txt',
     'engine.bgt.txt',
     'engine.blade.txt',
+    'engine.bms.txt',
     'engine.contagion.txt',
     'engine.csgo.txt',
     'engine.css.txt',
@@ -294,7 +301,9 @@ CopyFiles('plugins/include', 'addons/sourcemod/scripting/include',
     'clientprefs.inc',
     'clients.inc',
     'commandfilters.inc',
+    'commandline.inc',
     'console.inc',
+    'convars.inc',
     'core.inc',
     'cstrike.inc',
     'datapack.inc',
@@ -337,6 +346,7 @@ CopyFiles('plugins/include', 'addons/sourcemod/scripting/include',
     'sorting.inc',
     'sourcemod.inc',
     'string.inc',
+    'testing.inc',
     'textparse.inc',
     'tf2.inc',
     'tf2_stocks.inc',
@@ -410,6 +420,7 @@ CopyFiles('plugins/testsuite', 'addons/sourcemod/scripting/testsuite',
     'structtest.sp',
     'tf2-test.sp',
     'tries.sp',
+    'keyvalues.sp',
   ]
 )
 CopyFiles('plugins/basecommands', 'addons/sourcemod/scripting/basecommands',
@@ -461,6 +472,6 @@ CopyFiles('plugins/playercommands', 'addons/sourcemod/scripting/playercommands',
 )
 
 if builder.target_platform == 'windows':
-  CopyFiles('sourcepawn/batchtool', 'addons/sourcemod/scripting', ['compile.exe'])
+  CopyFiles('tools/batchtool', 'addons/sourcemod/scripting', ['compile.exe'])
 else:
   CopyFiles('plugins', 'addons/sourcemod/scripting', ['compile.sh'])

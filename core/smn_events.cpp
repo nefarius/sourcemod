@@ -207,7 +207,13 @@ static cell_t sm_GetEventBool(IPluginContext *pContext, const cell_t *params)
 	char *key;
 	pContext->LocalToString(params[2], &key);
 
-	return pInfo->pEvent->GetBool(key);
+	bool defValue = false;
+	if (params[0] > 2)
+	{
+		defValue = !!params[3];
+	}
+
+	return pInfo->pEvent->GetBool(key, defValue);
 }
 
 static cell_t sm_GetEventInt(IPluginContext *pContext, const cell_t *params)
@@ -226,7 +232,13 @@ static cell_t sm_GetEventInt(IPluginContext *pContext, const cell_t *params)
 	char *key;
 	pContext->LocalToString(params[2], &key);
 
-	return pInfo->pEvent->GetInt(key);
+	int defValue = 0;
+	if (params[0] > 2)
+	{
+		defValue = params[3];
+	}
+
+	return pInfo->pEvent->GetInt(key, defValue);
 }
 
 static cell_t sm_GetEventFloat(IPluginContext *pContext, const cell_t *params)
@@ -245,7 +257,13 @@ static cell_t sm_GetEventFloat(IPluginContext *pContext, const cell_t *params)
 	char *key;
 	pContext->LocalToString(params[2], &key);
 
-	float value = pInfo->pEvent->GetFloat(key);
+	float defValue = 0.0f;
+	if (params[0] > 2)
+	{
+		defValue = sp_ctof(params[3]);
+	}
+
+	float value = pInfo->pEvent->GetFloat(key, defValue);
 
 	return sp_ftoc(value);
 }
@@ -266,7 +284,14 @@ static cell_t sm_GetEventString(IPluginContext *pContext, const cell_t *params)
 	char *key;
 	pContext->LocalToString(params[2], &key);
 
-	pContext->StringToLocalUTF8(params[3], params[4], pInfo->pEvent->GetString(key), NULL);
+	char *defValue = NULL;
+	if (params[0] > 4)
+	{
+		pContext->LocalToString(params[5], &defValue);
+	}
+
+	const char *value = pInfo->pEvent->GetString(key, defValue ? defValue : "");
+	pContext->StringToLocalUTF8(params[3], params[4], value, NULL);
 
 	return 1;
 }
@@ -393,6 +418,21 @@ REGISTER_NATIVES(gameEventNatives)
 	{"SetEventFloat",		sm_SetEventFloat},
 	{"SetEventString",		sm_SetEventString},
 	{"SetEventBroadcast",   sm_SetEventBroadcast},
+
+	// Transitional syntax support.
+	{"Event.Fire",			sm_FireEvent},
+	{"Event.Cancel",		sm_CancelCreatedEvent},
+	{"Event.GetName",		sm_GetEventName},
+	{"Event.GetBool",		sm_GetEventBool},
+	{"Event.GetInt",		sm_GetEventInt},
+	{"Event.GetFloat",		sm_GetEventFloat},
+	{"Event.GetString",		sm_GetEventString},
+	{"Event.SetBool",		sm_SetEventBool},
+	{"Event.SetInt",		sm_SetEventInt},
+	{"Event.SetFloat",		sm_SetEventFloat},
+	{"Event.SetString",		sm_SetEventString},
+	{"Event.BroadcastDisabled.set", sm_SetEventBroadcast},
+
 	{NULL,					NULL}
 };
 

@@ -33,6 +33,7 @@
 #include "UserMessages.h"
 #include "UserMessagePBHelpers.h"
 #include "smn_usermsgs.h"
+#include <IHandleSys.h>
 
 // Assumes pbuf message handle is param 1, gets message as msg
 #define GET_MSG_FROM_HANDLE_OR_ERR()                  \
@@ -52,13 +53,8 @@
 
 // Assumes message field name is param 2, gets as strField
 #define GET_FIELD_NAME_OR_ERR()                                           \
-	int err;                                                              \
 	char *strField;                                                       \
-	if ((err=pCtx->LocalToString(params[2], &strField)) != SP_ERROR_NONE) \
-	{                                                                     \
-		pCtx->ThrowNativeErrorEx(err, NULL);                              \
-		return 0;                                                         \
-	}
+	pCtx->LocalToString(params[2], &strField);
 
 static cell_t smn_PbReadInt(IPluginContext *pCtx, const cell_t *params)
 {
@@ -387,11 +383,7 @@ static cell_t smn_PbSetString(IPluginContext *pCtx, const cell_t *params)
 	GET_FIELD_NAME_OR_ERR();
 
 	char *strValue;
-	if ((err=pCtx->LocalToString(params[3], &strValue)) != SP_ERROR_NONE)
-	{
-		pCtx->ThrowNativeErrorEx(err, NULL);
-		return 0;
-	}
+	pCtx->LocalToString(params[3], &strValue);
 
 	int index = params[0] >= 4 ? params[4] : -1;
 	if (index < 0)
@@ -418,11 +410,7 @@ static cell_t smn_PbSetColor(IPluginContext *pCtx, const cell_t *params)
 	GET_FIELD_NAME_OR_ERR();
 
 	cell_t *clrParams;
-	if ((err=pCtx->LocalToPhysAddr(params[3], &clrParams)) != SP_ERROR_NONE)
-	{
-		pCtx->ThrowNativeErrorEx(err, NULL);
-		return 0;
-	}
+	pCtx->LocalToPhysAddr(params[3], &clrParams);
 
 	Color clr(
 		clrParams[0],
@@ -455,11 +443,7 @@ static cell_t smn_PbSetAngle(IPluginContext *pCtx, const cell_t *params)
 	GET_FIELD_NAME_OR_ERR();
 
 	cell_t *angParams;
-	if ((err=pCtx->LocalToPhysAddr(params[3], &angParams)) != SP_ERROR_NONE)
-	{
-		pCtx->ThrowNativeErrorEx(err, NULL);
-		return 0;
-	}
+	pCtx->LocalToPhysAddr(params[3], &angParams);
 
 	QAngle ang(
 		sp_ctof(angParams[0]),
@@ -491,11 +475,7 @@ static cell_t smn_PbSetVector(IPluginContext *pCtx, const cell_t *params)
 	GET_FIELD_NAME_OR_ERR();
 
 	cell_t *vecParams;
-	if ((err=pCtx->LocalToPhysAddr(params[3], &vecParams)) != SP_ERROR_NONE)
-	{
-		pCtx->ThrowNativeErrorEx(err, NULL);
-		return 0;
-	}
+	pCtx->LocalToPhysAddr(params[3], &vecParams);
 
 	Vector vec(
 		sp_ctof(vecParams[0]),
@@ -527,11 +507,7 @@ static cell_t smn_PbSetVector2D(IPluginContext *pCtx, const cell_t *params)
 	GET_FIELD_NAME_OR_ERR();
 
 	cell_t *vecParams;
-	if ((err=pCtx->LocalToPhysAddr(params[3], &vecParams)) != SP_ERROR_NONE)
-	{
-		pCtx->ThrowNativeErrorEx(err, NULL);
-		return 0;
-	}
+	pCtx->LocalToPhysAddr(params[3], &vecParams);
 
 	Vector2D vec(
 		sp_ctof(vecParams[0]),
@@ -602,11 +578,7 @@ static cell_t smn_PbAddString(IPluginContext *pCtx, const cell_t *params)
 	GET_FIELD_NAME_OR_ERR();
 
 	char *strValue;
-	if ((err=pCtx->LocalToString(params[3], &strValue)) != SP_ERROR_NONE)
-	{
-		pCtx->ThrowNativeErrorEx(err, NULL);
-		return 0;
-	}
+	pCtx->LocalToString(params[3], &strValue);
 
 	if (!msg->AddString(strField, strValue))
 	{
@@ -622,11 +594,7 @@ static cell_t smn_PbAddColor(IPluginContext *pCtx, const cell_t *params)
 	GET_FIELD_NAME_OR_ERR();
 
 	cell_t *clrParams;
-	if ((err=pCtx->LocalToPhysAddr(params[3], &clrParams)) != SP_ERROR_NONE)
-	{
-		pCtx->ThrowNativeErrorEx(err, NULL);
-		return 0;
-	}
+	pCtx->LocalToPhysAddr(params[3], &clrParams);
 
 	Color clr(
 		clrParams[0],
@@ -648,11 +616,7 @@ static cell_t smn_PbAddAngle(IPluginContext *pCtx, const cell_t *params)
 	GET_FIELD_NAME_OR_ERR();
 
 	cell_t *angParams;
-	if ((err=pCtx->LocalToPhysAddr(params[3], &angParams)) != SP_ERROR_NONE)
-	{
-		pCtx->ThrowNativeErrorEx(err, NULL);
-		return 0;
-	}
+	pCtx->LocalToPhysAddr(params[3], &angParams);
 
 	QAngle ang(
 		sp_ctof(angParams[0]),
@@ -673,11 +637,7 @@ static cell_t smn_PbAddVector(IPluginContext *pCtx, const cell_t *params)
 	GET_FIELD_NAME_OR_ERR();
 
 	cell_t *vecParams;
-	if ((err=pCtx->LocalToPhysAddr(params[3], &vecParams)) != SP_ERROR_NONE)
-	{
-		pCtx->ThrowNativeErrorEx(err, NULL);
-		return 0;
-	}
+	pCtx->LocalToPhysAddr(params[3], &vecParams);
 
 	Vector vec(
 		sp_ctof(vecParams[0]),
@@ -698,11 +658,7 @@ static cell_t smn_PbAddVector2D(IPluginContext *pCtx, const cell_t *params)
 	GET_FIELD_NAME_OR_ERR();
 
 	cell_t *vecParams;
-	if ((err=pCtx->LocalToPhysAddr(params[3], &vecParams)) != SP_ERROR_NONE)
-	{
-		pCtx->ThrowNativeErrorEx(err, NULL);
-		return 0;
-	}
+	pCtx->LocalToPhysAddr(params[3], &vecParams);
 
 	Vector2D vec(
 		sp_ctof(vecParams[0]),
@@ -811,6 +767,38 @@ REGISTER_NATIVES(protobufnatives)
 	{"PbReadMessage",				smn_PbReadMessage},
 	{"PbReadRepeatedMessage",		smn_PbReadRepeatedMessage},
 	{"PbAddMessage",				smn_PbAddMessage},
+
+	// Transitional syntax.
+	{"Protobuf.ReadInt",					smn_PbReadInt},
+	{"Protobuf.ReadFloat",					smn_PbReadFloat},
+	{"Protobuf.ReadBool",					smn_PbReadBool},
+	{"Protobuf.ReadString",					smn_PbReadString},
+	{"Protobuf.ReadColor",					smn_PbReadColor},
+	{"Protobuf.ReadAngle",					smn_PbReadAngle},
+	{"Protobuf.ReadVector",					smn_PbReadVector},
+	{"Protobuf.ReadVector2D",				smn_PbReadVector2D},
+	{"Protobuf.GetRepeatedFieldCount",		smn_PbGetRepeatedFieldCount},
+	{"Protobuf.SetInt",						smn_PbSetInt},
+	{"Protobuf.SetFloat",					smn_PbSetFloat},
+	{"Protobuf.SetBool",					smn_PbSetBool},
+	{"Protobuf.SetString",					smn_PbSetString},
+	{"Protobuf.SetColor",					smn_PbSetColor},
+	{"Protobuf.SetAngle",					smn_PbSetAngle},
+	{"Protobuf.SetVector",					smn_PbSetVector},
+	{"Protobuf.SetVector2D",				smn_PbSetVector2D},
+	{"Protobuf.AddInt",						smn_PbAddInt},
+	{"Protobuf.AddFloat",					smn_PbAddFloat},
+	{"Protobuf.AddBool",					smn_PbAddBool},
+	{"Protobuf.AddString",					smn_PbAddString},
+	{"Protobuf.AddColor",					smn_PbAddColor},
+	{"Protobuf.AddAngle",					smn_PbAddAngle},
+	{"Protobuf.AddVector",					smn_PbAddVector},
+	{"Protobuf.AddVector2D",				smn_PbAddVector2D},
+	{"Protobuf.RemoveRepeatedFieldValue",	smn_PbRemoveRepeatedFieldValue},
+	{"Protobuf.ReadMessage",				smn_PbReadMessage},
+	{"Protobuf.ReadRepeatedMessage",		smn_PbReadRepeatedMessage},
+	{"Protobuf.AddMessage",					smn_PbAddMessage},
+
 	{NULL,							NULL}
 };
 
@@ -820,7 +808,7 @@ REGISTER_NATIVES(protobufnatives)
                                      @@@@@@@@@@@@@@@@@@@@@      
                                     @@@@@@@@@@@@@@@@@@@@@@@@               
                                    @@@@@@@@    @@@@@@@@@@@@@
-                                   @@@@@@@@    @@@@@@@@@@@@@          
+                                   @@@@@@@@ o  @@@@@@@@@@@@@          
                                       @@@@@@  @@@@@@@@@@@@@@@             
                                  0000   @@@@@@@@@@@@@@@@@@@@@                
                               000000000   @@@@@@@@@@@@@@@@@@@           

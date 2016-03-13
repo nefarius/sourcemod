@@ -1,5 +1,5 @@
 /**
- * vim: set ts=4 :
+ * vim: set ts=4 sw=4 tw=99 noet :
  * =============================================================================
  * SourceMod Admin File Reader Plugin
  * Reads the admin_groups.cfg file.  Do not compile this directly.
@@ -31,20 +31,28 @@
  * Version: $Id$
  */
 
-#define GROUP_STATE_NONE		0
-#define GROUP_STATE_GROUPS		1
-#define GROUP_STATE_INGROUP		2
-#define GROUP_STATE_OVERRIDES	3
-#define GROUP_PASS_FIRST		1
-#define GROUP_PASS_SECOND		2
+enum GroupState
+{
+	GroupState_None,
+	GroupState_Groups,
+	GroupState_InGroup,
+	GroupState_Overrides,
+}
 
-static Handle:g_hGroupParser = INVALID_HANDLE;
-static GroupId:g_CurGrp = INVALID_GROUP_ID;
-static g_GroupState = GROUP_STATE_NONE;
-static g_GroupPass = 0;
-static bool:g_NeedReparse = false;
+enum GroupPass
+{
+	GroupPass_Invalid,
+	GroupPass_First,
+	GroupPass_Second,
+}
 
-public SMCResult:ReadGroups_NewSection(Handle:smc, const String:name[], bool:opt_quotes)
+static SMCParser g_hGroupParser;
+static GroupId g_CurGrp = INVALID_GROUP_ID;
+static GroupState g_GroupState = GroupState_None;
+static GroupPass g_GroupPass = GroupPass_Invalid;
+static bool g_NeedReparse = false;
+
+public SMCResult ReadGroups_NewSection(SMCParser smc, const char[] name, bool opt_quotes)
 {
 	if (g_IgnoreLevel)
 	{
@@ -52,24 +60,24 @@ public SMCResult:ReadGroups_NewSection(Handle:smc, const String:name[], bool:opt
 		return SMCParse_Continue;
 	}
 	
-	if (g_GroupState == GROUP_STATE_NONE)
+	if (g_GroupState == GroupState_None)
 	{
 		if (StrEqual(name, "Groups"))
 		{
-			g_GroupState = GROUP_STATE_GROUPS;
+			g_GroupState = GroupState_Groups;
 		} else {
 			g_IgnoreLevel++;
 		}
-	} else if (g_GroupState == GROUP_STATE_GROUPS) {
+	} else if (g_GroupState == GroupState_Groups) {
 		if ((g_CurGrp = CreateAdmGroup(name)) == INVALID_GROUP_ID)
 		{
 			g_CurGrp = FindAdmGroup(name);
 		}
-		g_GroupState = GROUP_STATE_INGROUP;
-	} else if (g_GroupState == GROUP_STATE_INGROUP) {
+		g_GroupState = GroupState_InGroup;
+	} else if (g_GroupState == GroupState_InGroup) {
 		if (StrEqual(name, "Overrides"))
 		{
-			g_GroupState = GROUP_STATE_OVERRIDES;
+			g_GroupState = GroupState_Overrides;
 		} else {
 			g_IgnoreLevel++;
 		}
@@ -80,40 +88,39 @@ public SMCResult:ReadGroups_NewSection(Handle:smc, const String:name[], bool:opt
 	return SMCParse_Continue;
 }
 
-public SMCResult:ReadGroups_KeyValue(Handle:smc, 
-										const String:key[], 
-										const String:value[], 
-										bool:key_quotes, 
-										bool:value_quotes)
+public SMCResult ReadGroups_KeyValue(SMCParser smc, 
+										const char[] key, 
+										const char[] value, 
+										bool key_quotes, 
+										bool value_quotes)
 {
-	if (g_CurGrp == INVALID_GROUP_ID
-		|| g_IgnoreLevel)
+	if (g_CurGrp == INVALID_GROUP_ID || g_IgnoreLevel)
 	{
 		return SMCParse_Continue;
 	}
 	
-	new AdminFlag:flag;
+	AdminFlag flag;
 	
-	if (g_GroupPass == GROUP_PASS_FIRST)
+	if (g_GroupPass == GroupPass_First)
 	{
-		if (g_GroupState == GROUP_STATE_INGROUP)
+		if (g_GroupState == GroupState_InGroup)
 		{
 			if (StrEqual(key, "flags"))
 			{
-				new len = strlen(value);
-				for (new i=0; i<len; i++)
+				int len = strlen(value);
+				for (int i=0; i<len; i++)
 				{
 					if (!FindFlagByChar(value[i], flag))
 					{
 						continue;
 					}
-					SetAdmGroupAddFlag(g_CurGrp, flag, true);
+					g_CurGrp.SetFlag(flag, true);
 				}
 			} else if (StrEqual(key, "immunity")) {
 				g_NeedReparse = true;
 			}
-		} else if (g_GroupState == GROUP_STATE_OVERRIDES) {
-			new OverrideRule:rule = Command_Deny;
+		} else if (g_GroupState == GroupState_Overrides) {
+			OverrideRule rule = Command_Deny;
 			
 			if (StrEqual(value, "allow", false))
 			{
@@ -122,29 +129,29 @@ public SMCResult:ReadGroups_KeyValue(Handle:smc,
 			
 			if (key[0] == '@')
 			{
-				AddAdmGroupCmdOverride(g_CurGrp, key[1], Override_CommandGroup, rule);
+				g_CurGrp.AddCommandOverride(key[1], Override_CommandGroup, rule);
 			} else {
-				AddAdmGroupCmdOverride(g_CurGrp, key, Override_Command, rule);
+				g_CurGrp.AddCommandOverride(key, Override_Command, rule);
 			}
 		}
-	} else if (g_GroupPass == GROUP_PASS_SECOND
-			   && g_GroupState == GROUP_STATE_INGROUP) {
+	} else if (g_GroupPass == GroupPass_Second
+			   && g_GroupState == GroupState_InGroup) {
 		/* Check for immunity again, core should handle double inserts */
 		if (StrEqual(key, "immunity"))
 		{
 			/* If it's a value we know about, use it */
 			if (StrEqual(value, "*"))
 			{
-				SetAdmGroupImmunityLevel(g_CurGrp, 2);
+				g_CurGrp.ImmunityLevel = 2;
 			} else if (StrEqual(value, "$")) {
-				SetAdmGroupImmunityLevel(g_CurGrp, 1);
+				g_CurGrp.ImmunityLevel = 1;
 			} else {
-				new level;
+				int level;
 				if (StringToIntEx(value, level))
 				{
-					SetAdmGroupImmunityLevel(g_CurGrp, level);
+					g_CurGrp.ImmunityLevel = level;
 				} else {
-					new GroupId:id;
+					GroupId id;
 					if (value[0] == '@')
 					{
 						id = FindAdmGroup(value[1]);
@@ -153,7 +160,7 @@ public SMCResult:ReadGroups_KeyValue(Handle:smc,
 					}
 					if (id != INVALID_GROUP_ID)
 					{
-						SetAdmGroupImmuneFrom(g_CurGrp, id);
+						g_CurGrp.AddGroupImmunity(id);
 					} else {
 						ParseError("Unable to find group: \"%s\"", value);
 					}
@@ -165,7 +172,7 @@ public SMCResult:ReadGroups_KeyValue(Handle:smc,
 	return SMCParse_Continue;
 }
 
-public SMCResult:ReadGroups_EndSection(Handle:smc)
+public SMCResult ReadGroups_EndSection(SMCParser smc)
 {
 	/* If we're ignoring, skip out */
 	if (g_IgnoreLevel)
@@ -174,53 +181,52 @@ public SMCResult:ReadGroups_EndSection(Handle:smc)
 		return SMCParse_Continue;
 	}
 	
-	if (g_GroupState == GROUP_STATE_OVERRIDES)
+	if (g_GroupState == GroupState_Overrides)
 	{
-		g_GroupState = GROUP_STATE_INGROUP;
-	} else if (g_GroupState == GROUP_STATE_INGROUP) {
-		g_GroupState = GROUP_STATE_GROUPS;
+		g_GroupState = GroupState_InGroup;
+	} else if (g_GroupState == GroupState_InGroup) {
+		g_GroupState = GroupState_Groups;
 		g_CurGrp = INVALID_GROUP_ID;
-	} else if (g_GroupState == GROUP_STATE_GROUPS) {
-		g_GroupState = GROUP_STATE_NONE;
+	} else if (g_GroupState == GroupState_Groups) {
+		g_GroupState = GroupState_None;
 	}
 	
 	return SMCParse_Continue;
 }
 
-public SMCResult:ReadGroups_CurrentLine(Handle:smc, const String:line[], lineno)
+public SMCResult ReadGroups_CurrentLine(SMCParser smc, const char[] line, int lineno)
 {
 	g_CurrentLine = lineno;
 	
 	return SMCParse_Continue;
 }
 
-static InitializeGroupParser()
+static void InitializeGroupParser()
 {
-	if (g_hGroupParser == INVALID_HANDLE)
+	if (!g_hGroupParser)
 	{
-		g_hGroupParser = SMC_CreateParser();
-		SMC_SetReaders(g_hGroupParser,
-					   ReadGroups_NewSection,
-					   ReadGroups_KeyValue,
-					   ReadGroups_EndSection);
-		SMC_SetRawLine(g_hGroupParser, ReadGroups_CurrentLine);
+		g_hGroupParser = new SMCParser();
+		g_hGroupParser.OnEnterSection = ReadGroups_NewSection;
+		g_hGroupParser.OnKeyValue = ReadGroups_KeyValue;
+		g_hGroupParser.OnLeaveSection = ReadGroups_EndSection;
+		g_hGroupParser.OnRawLine = ReadGroups_CurrentLine;
 	}
 }
 
-static InternalReadGroups(const String:path[], pass)
+static void InternalReadGroups(const char[] path, GroupPass pass)
 {
 	/* Set states */
 	InitGlobalStates();
-	g_GroupState = GROUP_STATE_NONE;
+	g_GroupState = GroupState_None;
 	g_CurGrp = INVALID_GROUP_ID;
 	g_GroupPass = pass;
 	g_NeedReparse = false;
 		
-	new SMCError:err = SMC_ParseFile(g_hGroupParser, path);
+	SMCError err = g_hGroupParser.ParseFile(path);
 	if (err != SMCError_Okay)
 	{
-		decl String:buffer[64];
-		if (SMC_GetErrorString(err, buffer, sizeof(buffer)))
+		char buffer[64];
+		if (g_hGroupParser.GetErrorString(err, buffer, sizeof(buffer)))
 		{
 			ParseError("%s", buffer);
 		} else {
@@ -229,16 +235,16 @@ static InternalReadGroups(const String:path[], pass)
 	}
 }
 
-ReadGroups()
+void ReadGroups()
 {
 	InitializeGroupParser();
 	
 	BuildPath(Path_SM, g_Filename, sizeof(g_Filename), "configs/admin_groups.cfg");
 	
-	InternalReadGroups(g_Filename, GROUP_PASS_FIRST);
+	InternalReadGroups(g_Filename, GroupPass_First);
 	if (g_NeedReparse)
 	{
-		InternalReadGroups(g_Filename, GROUP_PASS_SECOND);
+		InternalReadGroups(g_Filename, GroupPass_Second);
 	}
 }
 

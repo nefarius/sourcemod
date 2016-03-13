@@ -41,6 +41,7 @@
 #include <IRootConsoleMenu.h>
 #include "NativeOwner.h"
 #include "ShareSys.h"
+#include <bridge/include/IExtensionBridge.h>
 
 class CPlayer;
 
@@ -161,7 +162,7 @@ public: //IExtensionManager
 public: //IPluginsListener
 	void OnPluginDestroyed(IPlugin *plugin);
 public: //IRootConsoleCommand
-	void OnRootConsoleCommand(const char *cmdname, const CCommand &command);
+	void OnRootConsoleCommand(const char *cmdname, const ICommandArgs *command) override;
 public:
 	IExtension *LoadAutoExtension(const char *path, bool bErrorOnMissing=true);
 	void BindDependency(IExtension *pOwner, IfaceInfo *pInfo);
@@ -173,6 +174,7 @@ public:
 	void AddLibrary(IExtension *pSource, const char *library);
 	bool LibraryExists(const char *library);
 	void CallOnCoreMapStart(edict_t *pEdictList, int edictCount, int clientMax);
+	void CallOnCoreMapEnd();
 	void AddRawDependency(IExtension *ext, IdentityToken_t *other, void *iface);
 	const CVector<IExtension *> *ListExtensions();
 	void FreeExtensionList(const CVector<IExtension *> *list);

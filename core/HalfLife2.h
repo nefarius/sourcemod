@@ -47,11 +47,11 @@
 #include <datamap.h>
 #include <ihandleentity.h>
 #include <tier0/icommandline.h>
-#if SOURCE_ENGINE >= SE_PORTAL2
 #include <string_t.h>
-#endif
 
-class CCommand;
+namespace SourceMod {
+class ICommandArgs;
+} // namespace SourceMod
 
 using namespace SourceHook;
 using namespace SourceMod;
@@ -102,7 +102,7 @@ struct DelayedFakeCliCmd
 
 struct CachedCommandInfo
 {
-	const CCommand *args;
+	const ICommandArgs *args;
 #if SOURCE_ENGINE <= SE_DARKMESSIAH
 	char cmd[300];
 #endif
@@ -129,10 +129,21 @@ public:
 #endif
 };
 
+// Corresponds to TF2's eFindMapResult in eiface.h
+// Not yet in other games, but eventually in others on same branch.
+enum class SMFindMapResult : cell_t {
+	Found,
+	NotFound,
+	FuzzyMatch,
+	NonCanonical,
+	PossiblyAvailable
+};
+
 class CHalfLife2 : 
 	public SMGlobalClass,
 	public IGameHelpers
 {
+	friend class AutoEnterCommand;
 public:
 	CHalfLife2();
 	~CHalfLife2();
@@ -174,20 +185,23 @@ public: //IGameHelpers
 	const char *GetEntityClassname(edict_t *pEdict);
 	const char *GetEntityClassname(CBaseEntity *pEntity);
 	bool IsMapValid(const char *map);
+	SMFindMapResult FindMap(char *pMapName, size_t nMapNameMax);
+	SMFindMapResult FindMap(const char *pMapName, char *pFoundMap = NULL, size_t nMapNameMax = 0);
+	bool GetMapDisplayName(const char *pMapName, char *pDisplayname, size_t nMapNameMax);
+#if SOURCE_ENGINE >= SE_ORANGEBOX
+	string_t AllocPooledString(const char *pszValue);
+#endif
 public:
 	void AddToFakeCliCmdQueue(int client, int userid, const char *cmd);
 	void ProcessFakeCliCmdQueue();
 public:
-	void PushCommandStack(const CCommand *cmd);
-	void PopCommandStack();
-	const CCommand *PeekCommandStack();
+	const ICommandArgs *PeekCommandStack();
 	const char *CurrentCommandName();
 	void AddDelayedKick(int client, int userid, const char *msg);
 	void ProcessDelayedKicks();
-#if !defined METAMOD_PLAPI_VERSION || PLAPI_VERSION < 11
-	bool IsOriginalEngine();
-#endif
 private:
+	void PushCommandStack(const ICommandArgs *cmd);
+	void PopCommandStack();
 	DataTableInfo *_FindServerClass(const char *classname);
 private:
 	void InitLogicalEntData();
@@ -211,5 +225,16 @@ private:
 extern CHalfLife2 g_HL2;
 
 bool IndexToAThings(cell_t, CBaseEntity **pEntData, edict_t **pEdictData);
+
+class AutoEnterCommand
+{
+public:
+	AutoEnterCommand(const ICommandArgs *args) {
+		g_HL2.PushCommandStack(args);
+	}
+	~AutoEnterCommand() {
+		g_HL2.PopCommandStack();
+	}
+};
 
 #endif //_INCLUDE_SOURCEMOD_CHALFLIFE2_H_

@@ -48,7 +48,8 @@ unsigned int CNativeOwner::GetMarkSerial()
 
 void CNativeOwner::AddDependent(CPlugin *pPlugin)
 {
-	m_Dependents.push_back(pPlugin);
+	if (m_Dependents.find(pPlugin) == m_Dependents.end())
+		m_Dependents.push_back(pPlugin);
 }
 
 void CNativeOwner::AddWeakRef(const WeakNative & ref)
@@ -64,31 +65,16 @@ void CNativeOwner::AddNatives(const sp_nativeinfo_t *natives)
 	m_natives.append(natives);
 }
 
-void CNativeOwner::PropagateMarkSerial(unsigned int serial)
-{
-	CNativeOwner *pOwner;
-	List<CPlugin *>::iterator iter;
-
-	for (iter = m_Dependents.begin();
-		 iter != m_Dependents.end();
-		 iter++)
-	{
-		pOwner = (*iter);
-		pOwner->SetMarkSerial(serial);
-	}
-}
-
 void CNativeOwner::UnbindWeakRef(const WeakNative &ref)
 {
-	sp_native_t *native;
 	IPluginContext *pContext;
 
 	pContext = ref.pl->GetBaseContext();
-	if ((pContext->GetNativeByIndex(ref.idx, &native)) == SP_ERROR_NONE)
-	{
-		native->status = SP_NATIVE_UNBOUND;
-		native->pfn = NULL;
-	}
+	pContext->GetRuntime()->UpdateNativeBinding(
+	  ref.idx,
+	  nullptr,
+	  0,
+	  nullptr);
 }
 
 void CNativeOwner::DropEverything()

@@ -101,6 +101,9 @@ MyDatabase::MyDatabase(MYSQL *mysql, const DatabaseInfo *info, bool persistent)
 	m_Info.driver = NULL;
 	m_Info.maxTimeout = info->maxTimeout;
 	m_Info.port = info->port;
+
+	// DBI, for historical reasons, guarantees an initial refcount of 1.
+	AddRef();
 }
 
 MyDatabase::~MyDatabase()
@@ -294,5 +297,9 @@ IDBDriver *MyDatabase::GetDriver()
 
 bool MyDatabase::SetCharacterSet(const char *characterset)
 {
-	return mysql_set_character_set(m_mysql, characterset) == 0 ? true : false;
+	bool res;
+	LockForFullAtomicOperation();
+	res = mysql_set_character_set(m_mysql, characterset) == 0 ? true : false;
+	UnlockFromFullAtomicOperation();
+	return res;
 }

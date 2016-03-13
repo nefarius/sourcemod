@@ -50,6 +50,7 @@
 #include <convar.h>
 #include <iserver.h>
 #include <cdll_int.h>
+#include "SoundEmitterSystem/isoundemittersystembase.h"
 
 #if SOURCE_ENGINE >= SE_ORANGEBOX
 #include <itoolentity.h>
@@ -82,12 +83,13 @@ public: //public SDKExtension
 public:
 #if defined SMEXT_CONF_METAMOD
 	virtual bool SDK_OnMetamodLoad(ISmmAPI *ismm, char *error, size_t maxlen, bool late);
-	//virtual bool SDK_OnMetamodUnload(char *error, size_t maxlen);
+	virtual bool SDK_OnMetamodUnload(char *error, size_t maxlen);
 	//virtual bool SDK_OnMetamodPauseChange(bool paused, char *error, size_t maxlen);
 #endif
 public: //IConCommandBaseAccessor
 	bool RegisterConCommandBase(ConCommandBase *pVar);
 public: //IClientListner
+	bool InterceptClientConnect(int client, char *error, size_t maxlength);
 	void OnClientPutInServer(int client);
 	void OnClientDisconnecting(int client);
 public: // IVoiceServer
@@ -100,12 +102,20 @@ public: // IVoiceServer
 #else
 	void OnClientCommand(edict_t *pEntity);
 #endif
+#if SOURCE_ENGINE == SE_CSS || SOURCE_ENGINE == SE_CSGO
+	void OnSendClientCommand(edict_t *pPlayer, const char *szFormat);
+#endif
 
 public: //ICommandTargetProcessor
 	bool ProcessCommandTarget(cmd_target_info_t *info);
 public:
 	bool LevelInit(char const *pMapName, char const *pMapEntities, char const *pOldLevel, char const *pLandmarkName, bool loadGame, bool background);
 	void OnServerActivate(edict_t *pEdictList, int edictCount, int clientMax);
+public:
+	bool HasAnyLevelInited() { return m_bAnyLevelInited; }
+
+private:
+	bool m_bAnyLevelInited = false;
 };
 
 extern SDKTools g_SdkTools;
@@ -120,10 +130,12 @@ extern IVoiceServer *voiceserver;
 extern IPlayerInfoManager *playerinfomngr;
 extern ICvar *icvar;
 extern IServer *iserver;
+extern IBaseFileSystem *basefilesystem;
 extern CGlobalVars *gpGlobals;
 #if SOURCE_ENGINE >= SE_ORANGEBOX
 extern IServerTools *servertools;
 #endif
+extern ISoundEmitterSystemBase *soundemitterbase;
 /* Interfaces from SourceMod */
 extern IBinTools *g_pBinTools;
 extern IGameConfig *g_pGameConf;
